@@ -127,7 +127,7 @@ details.setup input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; p
 .stagebar .info { font-size: 13px; color: var(--muted); }
 .stagebar .info b { color: var(--ink); }
 .sample-note { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--accent); font-weight: 600; }
-.stage { background: var(--stage); border-radius: 12px; padding: clamp(12px, 3vw, 32px); display: flex; flex-direction: column; gap: 12px; }
+.stage { position: relative; background: var(--stage); border-radius: 12px; padding: clamp(12px, 3vw, 32px); display: flex; flex-direction: column; gap: 12px; }
 .stage .big { box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 10px 30px -12px rgba(0,0,0,.25); border-radius: 4px; overflow: hidden; }
 .navrow { display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .notes { font-size: 12.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 120px; overflow: auto; white-space: pre-wrap; }
@@ -148,6 +148,16 @@ details.setup input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; p
 .slide .t .b { position: absolute; left: 0; top: 0; }
 .slide .t strong { font-weight: 700; }
 
+.busy { position: absolute; inset: 0; border-radius: 12px; background: color-mix(in srgb, var(--stage) 82%, transparent); backdrop-filter: blur(3px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; z-index: 2; }
+.busy b { font-family: var(--font-display); font-size: 20px; }
+.busy span { color: var(--muted); font-size: 13.5px; max-width: 42ch; }
+.busy .ring { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+.msg { margin: 0; font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--soft); color: var(--ink); }
+.ai-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--ink); }
+.ai-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.ai-badge.quick::before { background: var(--muted); }
+.stagebar .right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.why { margin: 0; font-size: 13px; color: var(--muted); }
 footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -191,6 +201,8 @@ footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; d
         <div class="detect" id="detect"></div>
         <div class="tpls" id="tpls" role="group" aria-label="Templates"></div>
         <div class="opts">
+          <label><input type="checkbox" id="optAI" checked> Design with AI</label>
+          <p class="hint" id="aiNote" hidden></p>
           <label><input type="checkbox" id="optAgenda" checked> Agenda slide</label>
           <label><input type="checkbox" id="optClosing" checked> Closing slide</label>
         </div>
@@ -224,9 +236,14 @@ footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; d
     <section class="stagecol" aria-label="Deck preview">
       <div class="stagebar">
         <div class="info" id="info"></div>
-        <span class="sample-note" id="sampleNote">Sample document · drop your PDF to replace it</span>
+        <div class="right">
+          <span class="sample-note" id="sampleNote">Sample deck · drop your PDF to replace it</span>
+          <button class="btn small" id="btnRedesign" type="button" hidden>Redesign with AI</button>
+        </div>
       </div>
+      <p class="msg" id="aiMsg" role="status" hidden></p>
       <div class="stage">
+        <div class="busy" id="busy" hidden><div class="ring" aria-hidden="true"></div><b id="busyTitle">Designing your deck</b><span id="busyText">Claude is rewriting your document as slide copy and choosing a layout for each slide.</span><button class="btn small" id="skipAI" type="button" hidden>Skip AI and use the quick layout</button></div>
         <div class="big" id="big"></div>
         <div class="navrow">
           <button class="btn small" id="prev" type="button" aria-label="Previous slide">←</button>
@@ -241,7 +258,7 @@ footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; d
 
   <footer class="foot">
     <span>Works best with PDFs downloaded from Google Docs, where headings become slide titles.</span>
-    <span>Full paragraph text is kept in each slide's speaker notes.</span>
+    <span>AI design writes speaker notes from your document for every slide.</span>
   </footer>
 </div>
 
@@ -256,6 +273,11 @@ footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; d
  * put your OAuth Client ID here (or paste it in the page's setup box).
  * ------------------------------------------------------------------ */
 const GOOGLE_CLIENT_ID = '';
+
+/* AI design on your own domain: the URL of the deployed worker in /worker
+ * (for example https://docdeck-ai.yourname.workers.dev). On claude.ai the
+ * page asks Claude directly and this is not needed. */
+const AI_ENDPOINT = '';
 
 const IN_ARTIFACT = !!(window.claude && typeof window.claude.use === 'function');
 
@@ -685,6 +707,10 @@ function tint(c, base, t) {
   const a = hexToRgb(c), b = hexToRgb(base);
   return a.map((v, i) => Math.round(b[i] + (v - b[i]) * t).toString(16).padStart(2, '0')).join('').toUpperCase();
 }
+function onColor(hex, th) {
+  const [r, g, b] = hexToRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? (th.darkBg ? th.bg : th.dark) : 'FFFFFF';
+}
 function gridLines(ops, color, x0, y0, w, h, step) {
   for (let x = x0; x <= x0 + w + 0.001; x += step) ops.push(R(x, y0, 0.012, h, color));
   for (let y = y0; y <= y0 + h + 0.001; y += step) ops.push(R(x0, y, w, 0.012, color));
@@ -873,6 +899,50 @@ function layoutSlide(m, th, ctx) {
     });
     const s = Math.min(...texts.map(t => t.size));
     texts.forEach(t => t.size = s);
+  } else if (m.type === 'cards') {
+    const n = m.cards.length, gap = 0.35;
+    const avail = W - 2 * mx - (th.motif === 'frame' ? 0.5 : 0);
+    const cw = (avail - gap * (n - 1)) / n;
+    const cardFill = th.darkBg ? tint(ink, bg, 0.07) : tint(th.accent, bg, 0.1);
+    const heads = [], texts = [];
+    m.cards.forEach((c, i) => {
+      const x = mx + i * (cw + gap);
+      P(R(x, top + 0.05, cw, 3.75, cardFill));
+      P(R(x + 0.3, top + 0.4, 0.55, 0.06, i % 2 ? th.accent2 : th.accent));
+      heads.push(P(fit(T(x + 0.3, top + 0.62, cw - 0.6, 0.95, c.heading, { font: th.head, bold: true, color: ink, lh: 1.12 }), 24, 13)));
+      texts.push(P(fit(T(x + 0.3, top + 1.7, cw - 0.6, 1.95, c.text, { font: th.body, color: ink, lh: 1.38 }), 17, 11)));
+    });
+    const hs = Math.min(...heads.map(h => h.size)), ts = Math.min(...texts.map(t => t.size));
+    heads.forEach(h => h.size = hs); texts.forEach(t => t.size = ts);
+  } else if (m.type === 'steps') {
+    const n = m.steps.length;
+    const avail = W - 2 * mx - (th.motif === 'frame' ? 0.5 : 0);
+    const cw = avail / n, lineY = top + 0.55;
+    P(R(mx + cw / 2, lineY - 0.012, cw * (n - 1), 0.024, tint(ink, bg, 0.25)));
+    const heads = [], texts = [];
+    m.steps.forEach((st, i) => {
+      const cx = mx + i * cw + cw / 2;
+      P(E(cx - 0.32, lineY - 0.32, 0.64, 0.64, th.accent));
+      P(T(cx - 0.32, lineY - 0.32, 0.64, 0.64, String(i + 1), { font: th.label, bold: true, size: 17, color: onColor(th.accent, th), align: 'center', valign: 'middle', lh: 1 }));
+      heads.push(P(fit(T(mx + i * cw + 0.12, top + 1.15, cw - 0.24, 0.8, st.heading, { font: th.head, bold: true, color: ink, align: 'center', lh: 1.12 }), 21, 12)));
+      texts.push(P(fit(T(mx + i * cw + 0.12, top + 2.0, cw - 0.24, 1.9, st.text, { font: th.body, color: mute, align: 'center', lh: 1.38 }), 16, 11)));
+    });
+    const hs = Math.min(...heads.map(h => h.size)), ts = Math.min(...texts.map(t => t.size));
+    heads.forEach(h => h.size = hs); texts.forEach(t => t.size = ts);
+  } else if (m.type === 'comparison') {
+    const avail = W - 2 * mx - (th.motif === 'frame' ? 0.5 : 0);
+    const cw = (avail - 0.9) / 2;
+    const heads = [], lists = [];
+    [m.left, m.right].forEach((sd, i) => {
+      const x = mx + i * (cw + 0.9);
+      heads.push(P(fit(T(x, top + 0.05, cw, 0.62, sd.heading, { font: th.head, bold: true, color: ink, lh: 1.1, valign: 'bottom' }), 24, 14)));
+      P(R(x, top + 0.8, cw, 0.07, i ? th.accent2 : th.accent));
+      if (sd.points.length) lists.push(P(fit(T(x, top + 1.1, cw, bh - 1.15, sd.points.map(t => ({ text: t })), { font: th.body, color: ink, bulletChar: th.bullet, indent: 0.36, lh: 1.25, gapR: 0.7 }), 21, 12)));
+    });
+    P(R(mx + cw + 0.444, top + 0.05, 0.012, bh - 0.1, tint(ink, bg, 0.15)));
+    const hs = Math.min(...heads.map(h => h.size));
+    heads.forEach(h => h.size = hs);
+    if (lists.length) { const ls = Math.min(...lists.map(l => l.size)); lists.forEach(l => { l.size = ls; l.gap = Math.round(ls * 0.7); }); }
   }
   if (th.motif === 'rule' || th.motif === 'minimal' || th.motif === 'band') {
     P(T(mx, H - 0.6, 8, 0.3, ctx.docTitle, { font: th.label, size: 10, color: mute }));
@@ -975,6 +1045,154 @@ function buildPptx(models, title) {
   return pptx;
 }
 
+/* ============================ AI designer ========================== */
+/* Same rules as worker/src/index.ts. Keep the two copies in sync. */
+const DESIGN_RULES = `You are a senior presentation designer. Turn the document below into a clear, professional slide deck.
+
+Content
+- Use only facts from the document. Never invent numbers, names, dates or claims.
+- One idea per slide. Aim for roughly one slide per 150-250 words of source, between 4 and 18 content slides.
+- Write slide copy, not prose. Titles state the point in 8 words or fewer ("Revenue grew 22% in 2026", not "Revenue").
+- Bullets: 3-5 per slide, 14 words or fewer each, no trailing periods. Use "lead" for a short bold label (2-4 words) when points have natural labels; otherwise leave it out.
+- Put the fuller explanation in "notes": 2-4 sentences a presenter can say, drawn from the document.
+- "kicker" is a short label above the title (the part of the talk it belongs to, 4 words or fewer), or "".
+
+Layouts: choose the one that fits each slide's content, and avoid the same layout more than twice in a row.
+- section: a divider before a major part that has 2 or more slides. Title only.
+- bullets: 3-5 points.
+- stats: 2-4 headline numbers from the document. "value" is 8 characters or fewer ("$8.4M", "22%", "14 mo"); "caption" is 12 words or fewer.
+- cards: 3-4 parallel ideas (pillars, options, features). "heading" 4 words or fewer, "text" 18 words or fewer.
+- steps: 3-5 ordered steps, phases or dates, in order. "heading" 4 words or fewer, "text" 14 words or fewer.
+- comparison: two sides (before/after, option A/B, pros/cons). "left" and "right" each have a heading and 2-4 points.
+- quote: a memorable sentence quoted in the document, with "by" naming who said it.
+- statement: the single most important message, 25 words or fewer, in "text". Use at most twice.
+Fill only the fields the chosen layout uses.
+
+Do not add a title slide, agenda or closing slide; the app adds those.
+
+Deck
+- "title": the deck title, 10 words or fewer, faithful to the document's title. "subtitle": 14 words or fewer, or "".
+- "template": the visual template that fits the subject. One of:
+  business (business, finance, strategy), tech (technology, software, data), science (science, research),
+  education (teaching, learning, schools), health (health, medicine, wellbeing), creative (marketing, brand, design, arts),
+  nature (environment, climate, agriculture), legal (law, policy, government), general (anything else).
+- "reason": one sentence on why that template fits.`;
+
+const PLAN_SHAPE = `{"template":"business","reason":"…","title":"…","subtitle":"…","slides":[
+{"layout":"section","title":"…","kicker":"","notes":""},
+{"layout":"bullets","title":"…","kicker":"…","notes":"…","bullets":[{"lead":"…","text":"…"},{"text":"…"}]},
+{"layout":"stats","title":"…","kicker":"…","notes":"…","stats":[{"value":"22%","caption":"…"}]},
+{"layout":"cards","title":"…","kicker":"…","notes":"…","cards":[{"heading":"…","text":"…"}]},
+{"layout":"steps","title":"…","kicker":"…","notes":"…","steps":[{"heading":"…","text":"…"}]},
+{"layout":"comparison","title":"…","kicker":"…","notes":"…","left":{"heading":"…","points":["…"]},"right":{"heading":"…","points":["…"]}},
+{"layout":"quote","title":"…","kicker":"…","notes":"…","quote":"…","by":"…"},
+{"layout":"statement","title":"…","kicker":"…","notes":"…","text":"…"}]}`;
+
+const AI_MAX_CHARS = 150000;
+
+function docToText(doc) {
+  return doc.blocks.map(b => b.kind === 'h' ? '#'.repeat(Math.min(b.level || 1, 4)) + ' ' + b.text : b.kind === 'li' ? '- ' + b.text : b.text).join('\n\n');
+}
+function getAiEndpoint() { try { return localStorage.getItem('docdeck.aiEndpoint') || AI_ENDPOINT; } catch (e) { return AI_ENDPOINT; } }
+
+let sampleFnP = null;
+function getSampleFn() {
+  if (!IN_ARTIFACT) return Promise.resolve(null);
+  if (!sampleFnP) sampleFnP = Promise.resolve(window.claude.use('sample')).catch(() => null);
+  return sampleFnP;
+}
+async function aiAvailable() { return IN_ARTIFACT ? !!(await getSampleFn()) : !!getAiEndpoint(); }
+
+async function aiDesign(doc, signal, fresh) {
+  const text = docToText(doc);
+  if (text.length > AI_MAX_CHARS) throw { code: 'too_long' };
+  if (IN_ARTIFACT) {
+    const sample = await getSampleFn();
+    if (!sample) throw { code: 'unavailable' };
+    const prompt = `${DESIGN_RULES}\n\nReply with only one JSON object in this shape:\n${PLAN_SHAPE}\n\n<document>\nTitle: ${doc.title}\nSubtitle: ${doc.subtitle || ''}\n\n${text}\n</document>`;
+    return sample.json(prompt, { modelTier: 'default', effort: 'medium', signal, cache: fresh ? false : { gcTime: 3600000 } });
+  }
+  const r = await fetch(getAiEndpoint(), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+    body: JSON.stringify({ doc: { title: doc.title, subtitle: doc.subtitle || '', text } }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.deck) throw { code: 'endpoint', message: j.error || `The AI designer returned an error (${r.status}).` };
+  return j.deck;
+}
+
+function aiErrorText(e) {
+  const c = e && (e.code || e.name);
+  if (c === 'cancelled' || c === 'AbortError') return 'AI design skipped. This is the quick layout.';
+  if (c === 'not_granted') return 'Claude was not allowed for this page, so this is the quick layout.';
+  if (c === 'rate_limited') return 'Claude is busy or a usage limit was reached. This is the quick layout; try Redesign with AI later.';
+  if (c === 'too_long') return 'This document is too long for AI design, so this is the quick layout.';
+  if (c === 'refused') return 'Claude declined to design this document, so this is the quick layout.';
+  if (c === 'endpoint') return `${e.message} This is the quick layout.`;
+  if (c === 'TypeError') return 'Could not reach the AI designer. This is the quick layout.';
+  return 'AI design did not finish, so this is the quick layout. Try Redesign with AI.';
+}
+
+const S = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+const arr = (v, n) => Array.isArray(v) ? v.slice(0, n) : [];
+
+/* Turn the AI's plan into slide models, cleaning anything malformed. */
+function planToSlides(plan, doc, o) {
+  if (!plan || typeof plan !== 'object' || !Array.isArray(plan.slides)) throw { code: 'bad_plan' };
+  const body = [];
+  for (const r of plan.slides.slice(0, 40)) {
+    if (!r || typeof r !== 'object') continue;
+    const base = { title: S(r.title, 120), kicker: S(r.kicker, 48), notes: S(r.notes, 2000) };
+    const bullets = arr(r.bullets, 6).map(b => {
+      const lead = S(b && b.lead, 40);
+      return { lead: lead ? lead.replace(/[:.\s]*$/, ':') : undefined, text: S(b && b.text, 180).replace(/\.$/, '') };
+    }).filter(b => b.text);
+    const items = k => arr(r[k], k === 'steps' ? 5 : 4).map(x => ({ heading: S(x && x.heading, 50), text: S(x && x.text, 200) })).filter(x => x.heading || x.text);
+    const side = v => v && typeof v === 'object' ? { heading: S(v.heading, 50), points: arr(v.points, 5).map(p => S(p, 160).replace(/\.$/, '')).filter(Boolean) } : null;
+    let sl = null;
+    switch (r.layout) {
+      case 'section': if (base.title) sl = Object.assign(base, { type: 'section', items: [] }); break;
+      case 'stats': {
+        const st = arr(r.stats, 4).map(x => ({ value: S(x && x.value, 12), caption: S(x && x.caption, 150) })).filter(x => x.value);
+        if (st.length >= 2) sl = Object.assign(base, { type: 'stats', stats: st });
+        break;
+      }
+      case 'cards': { const c = items('cards'); if (c.length >= 2) sl = Object.assign(base, { type: 'cards', cards: c }); break; }
+      case 'steps': { const c = items('steps'); if (c.length >= 2) sl = Object.assign(base, { type: 'steps', steps: c }); break; }
+      case 'comparison': {
+        const L = side(r.left), Rt = side(r.right);
+        if (L && Rt && (L.points.length || Rt.points.length)) sl = Object.assign(base, { type: 'comparison', left: L, right: Rt });
+        break;
+      }
+      case 'quote': if (S(r.quote, 400).length > 8) sl = Object.assign(base, { type: 'quote', quote: S(r.quote, 320).replace(/^["“]|["”]$/g, ''), by: S(r.by, 80) }); break;
+      case 'statement': if (S(r.text, 300).length > 8) sl = Object.assign(base, { type: 'statement', text: S(r.text, 260) }); break;
+    }
+    if (!sl && bullets.length) sl = Object.assign(base, { type: 'bullets', bullets });
+    if (!sl && r.layout !== 'section') {
+      const alt = items('cards').concat(items('steps')).map(x => ({ lead: x.heading && x.text ? x.heading + ':' : undefined, text: x.text || x.heading }));
+      if (alt.length) sl = Object.assign(base, { type: 'bullets', bullets: alt.slice(0, 6) });
+    }
+    if (sl && (sl.title || sl.type === 'statement')) body.push(sl);
+  }
+  const clean = body.filter((x, i) => x.type !== 'section' || (body[i + 1] && body[i + 1].type !== 'section'));
+  if (!clean.some(x => x.type !== 'section')) throw { code: 'bad_plan' };
+  let num = 0;
+  clean.forEach((x, i) => {
+    if (x.type !== 'section') return;
+    x.num = String(++num).padStart(2, '0');
+    for (let j = i + 1; j < clean.length && clean[j].type !== 'section' && x.items.length < 4; j++) x.items.push(clean[j].title);
+  });
+  const date = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const title = S(plan.title, 140) || doc.title;
+  const subtitle = S(plan.subtitle, 200);
+  const out = [{ type: 'title', title, subtitle, kicker: date, notes: subtitle }];
+  const secs = clean.filter(x => x.type === 'section');
+  if (o.agenda && secs.length >= 3) out.push({ type: 'agenda', title: 'Agenda', items: secs.map(x => x.title) });
+  out.push(...clean);
+  if (o.closing) out.push({ type: 'closing', title: 'Thank you', subtitle: 'Questions and discussion', kicker: title, notes: '' });
+  return out;
+}
+
 /* ============================== Sample ============================= */
 const SAMPLE = {
   fileName: 'Harbor & Pine 2027 Expansion Plan.pdf', pages: 3,
@@ -1010,11 +1228,33 @@ const SAMPLE = {
   ],
 };
 
+/* A deck plan for the sample, in the same format the AI designer returns. */
+const SAMPLE_PLAN = {
+  template: 'business',
+  reason: 'A growth plan built on revenue, sites and margins suits a boardroom style.',
+  title: 'Harbor & Pine Coffee: 2027 Expansion Plan',
+  subtitle: 'Three new cafés, a bigger wholesale arm and faster service',
+  slides: [
+    { layout: 'statement', title: 'The plan in one line', kicker: 'Executive summary', text: 'Open three new cafés in 2027, funded by our own cash flow, each breaking even within 14 months.', notes: 'We propose three new locations in 2027. They are funded by operating cash flow plus a $1.2M credit line, and each store targets break-even within 14 months.' },
+    { layout: 'stats', title: '2026 gave us the base to grow', kicker: 'Executive summary', notes: 'Fiscal 2026 closed at $8.4M across six cafés, up 22% on the prior year. A $1.2M credit line backs the expansion.', stats: [{ value: '$8.4M', caption: 'Revenue in fiscal 2026 across six cafés' }, { value: '22%', caption: 'Growth on the prior year' }, { value: '$1.2M', caption: 'Credit line to support expansion' }] },
+    { layout: 'section', title: 'Why now', kicker: '', notes: '' },
+    { layout: 'stats', title: 'Demand is back downtown', kicker: 'Market opportunity', notes: 'Specialty coffee spending in the metro area grew 11% in 2026, downtown occupancy is at 78% of 2019 levels, and most of our 41,000 loyalty members live near a proposed site.', stats: [{ value: '11%', caption: 'Growth in local specialty coffee spending' }, { value: '78%', caption: 'Downtown office occupancy versus 2019' }, { value: '41,000', caption: 'Active loyalty members, most near a new site' }] },
+    { layout: 'section', title: 'How we grow', kicker: '', notes: '' },
+    { layout: 'cards', title: 'Three sites, three formats', kicker: 'Growth strategy', notes: 'Each site has weekday foot traffic above 9,000 people and no specialty competitor within 400 metres.', cards: [{ heading: 'Riverside', text: 'Drive-through format built for the commuter rush' }, { heading: 'Arts District', text: 'Larger café that hosts evening events' }, { heading: 'Campus', text: 'Compact kiosk built around mobile ordering' }] },
+    { layout: 'comparison', title: 'Beans and subscriptions earn more', kicker: 'Growth strategy', notes: 'Bagged beans and wholesale are 14% of revenue. Subscriptions carry a 58% gross margin against 34% for café sales, so we will add twelve grocery accounts and launch a subscription service.', left: { heading: 'Café sales', points: ['34% gross margin', 'Most of our revenue today'] }, right: { heading: 'Wholesale and subscriptions', points: ['58% gross margin on subscriptions', '14% of revenue today', 'Twelve new grocery accounts planned'] } },
+    { layout: 'bullets', title: 'Halving the wait at peak hours', kicker: 'Growth strategy', notes: 'Mobile ordering reaches every store by March. Peak wait should fall from six minutes to under three, which was the most common complaint in our survey.', bullets: [{ lead: 'Mobile ordering', text: 'Live in every store by March' }, { lead: 'Peak wait', text: 'From six minutes to under three' }, { lead: 'Why it matters', text: 'Wait time is the top complaint in our survey' }] },
+    { layout: 'stats', title: 'What 2027 looks like', kicker: 'Financial outlook', notes: 'We forecast $10.9M revenue in fiscal 2027 on $1.6M of capital investment. Operating margin is 12%, rising to 15% by 2028.', stats: [{ value: '$10.9M', caption: 'Revenue forecast for fiscal 2027' }, { value: '$1.6M', caption: 'Capital investment across three sites' }, { value: '15%', caption: 'Operating margin by 2028, up from 12%' }] },
+    { layout: 'bullets', title: 'Two risks, both covered', kicker: 'Risks', notes: 'Green coffee prices rose 30% in a year, so we will lock in 60% of 2027 volume through forward contracts. Each new store needs fourteen trained baristas, so the training academy starts in January.', bullets: [{ lead: 'Coffee prices', text: 'Up 30% in a year; 60% of 2027 volume locked in' }, { lead: 'Hiring', text: 'Fourteen baristas per store; training academy opens in January' }] },
+    { layout: 'steps', title: 'From approval to first opening', kicker: 'Next steps', notes: 'We ask the board to approve the budget in December. The Riverside lease is signed by January 31 and the first new store opens in May 2027.', steps: [{ heading: 'December', text: 'Board approves the expansion budget' }, { heading: 'January 31', text: 'Riverside lease signed' }, { heading: 'May 2027', text: 'First new store opens' }] },
+  ],
+};
+
 /* =============================== App =============================== */
 const $ = id => document.getElementById(id);
-const state = { doc: null, fileName: '', detected: null, themeId: 'general', slides: [], models: [], cur: 0, isSample: true, ms: 0 };
+const state = { doc: null, fileName: '', detected: null, themeId: 'general', autoId: 'general', aiPlan: null, aiReason: '', slides: [], models: [], cur: 0, isSample: true, ms: 0, busy: false };
 
 function opts() { return { agenda: $('optAgenda').checked, closing: $('optClosing').checked }; }
+function usingAI() { return $('optAI').checked && !!state.aiPlan; }
 
 const fontsReady = (() => {
   const fams = new Set();
@@ -1024,18 +1264,35 @@ const fontsReady = (() => {
   return Promise.race([Promise.allSettled(loads), new Promise(r => setTimeout(r, 4000))]);
 })();
 
+function buildSlides() {
+  if (usingAI()) {
+    try { return planToSlides(state.aiPlan, state.doc, opts()); } catch (e) { state.aiPlan = null; }
+  }
+  return buildDeck(state.doc, opts());
+}
 function layoutDeck() {
   const th = THEMES[state.themeId];
   const total = state.slides.length;
   const meta = [state.doc.pages ? `${state.doc.pages}-page document` : '', new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })].filter(Boolean).join('  ·  ');
-  state.models = state.slides.map((s, i) => Object.assign(layoutSlide(s, th, { index: i, total, docTitle: shorten(state.doc.title, 10), metaLine: meta }), { notes: s.notes }));
+  state.models = state.slides.map((s, i) => Object.assign(layoutSlide(s, th, { index: i, total, docTitle: shorten(state.slides[0].title || state.doc.title, 10), metaLine: meta }), { notes: s.notes }));
 }
-
 function rebuild() {
-  state.slides = buildDeck(state.doc, opts());
+  state.slides = buildSlides();
   layoutDeck();
   state.cur = Math.min(state.cur, state.models.length - 1);
   renderAll();
+}
+
+function setMsg(text) { const m = $('aiMsg'); m.hidden = !text; m.textContent = text || ''; }
+function setBusy(on, title, text) {
+  state.busy = on;
+  $('busy').hidden = !on;
+  if (title) $('busyTitle').textContent = title;
+  if (text) $('busyText').textContent = text;
+  $('strip').style.visibility = on ? 'hidden' : '';
+  $('btnRedesign').disabled = on;
+  $('btnPptx').disabled = on;
+  $('btnGoogle').disabled = on;
 }
 
 function renderAll() {
@@ -1052,7 +1309,7 @@ function renderAll() {
     f.className = 'frame';
     f.append(renderSlide(m));
     const cap = document.createElement('span');
-    cap.textContent = `${i + 1}. ${state.slides[i].title || ''}`;
+    cap.textContent = `${i + 1}. ${state.slides[i].title || state.slides[i].text || ''}`;
     cap.style.whiteSpace = 'nowrap'; cap.style.overflow = 'hidden'; cap.style.textOverflow = 'ellipsis';
     b.append(f, cap);
     b.addEventListener('click', () => { state.cur = i; renderStage(); markThumbs(); });
@@ -1060,12 +1317,16 @@ function renderAll() {
   });
   renderTemplates();
   renderDetect();
-  const th = THEMES[state.themeId];
-  $('info').innerHTML = '';
   const info = $('info');
-  const parts = [[`${state.models.length} slides`, true], [` · ${th.name} template`, false]];
-  if (!state.isSample) parts.push([` · built in ${(state.ms / 1000).toFixed(1)} s from ${state.doc.pages} page${state.doc.pages === 1 ? '' : 's'}`, false]);
-  for (const [t, b] of parts) { const e = document.createElement(b ? 'b' : 'span'); e.textContent = t; info.append(e); }
+  info.replaceChildren();
+  const th = THEMES[state.themeId];
+  const b = document.createElement('b'); b.textContent = `${state.models.length} slides`;
+  const t = document.createElement('span'); t.textContent = ` · ${th.name} template · `;
+  const badge = document.createElement('span');
+  badge.className = 'ai-badge' + (usingAI() ? '' : ' quick');
+  badge.textContent = usingAI() ? 'Designed with AI' : 'Quick layout';
+  info.append(b, t, badge);
+  if (!state.isSample && state.ms) { const x = document.createElement('span'); x.textContent = ` · ready in ${(state.ms / 1000).toFixed(1)} s`; info.append(x); }
   $('sampleNote').hidden = !state.isSample;
 }
 function markThumbs() {
@@ -1078,7 +1339,7 @@ function renderStage() {
   const notes = state.slides[state.cur].notes;
   const n = $('notes');
   n.hidden = !notes;
-  if (notes) { n.replaceChildren(); const b = document.createElement('b'); b.textContent = 'Speaker notes, from your document'; n.append(b, document.createTextNode(notes)); }
+  if (notes) { n.replaceChildren(); const b = document.createElement('b'); b.textContent = 'Speaker notes'; n.append(b, document.createTextNode(notes)); }
 }
 function go(d) {
   const nx = Math.max(0, Math.min(state.models.length - 1, state.cur + d));
@@ -1089,7 +1350,7 @@ function go(d) {
 function renderTemplates() {
   const box = $('tpls');
   box.replaceChildren();
-  const sampleTitle = { type: 'title', title: state.doc.title, subtitle: '', kicker: '' };
+  const sampleTitle = { type: 'title', title: (state.slides[0] && state.slides[0].title) || state.doc.title, subtitle: '', kicker: '' };
   for (const id of THEME_ORDER) {
     const th = THEMES[id];
     const b = document.createElement('button');
@@ -1105,7 +1366,7 @@ function renderTemplates() {
     meta.className = 'meta';
     const nm = document.createElement('b'); nm.textContent = th.name;
     meta.append(nm);
-    if (state.detected && state.detected.id === id) { const a = document.createElement('span'); a.className = 'auto'; a.textContent = 'Auto'; meta.append(a); }
+    if (state.autoId === id) { const a = document.createElement('span'); a.className = 'auto'; a.textContent = 'Auto'; meta.append(a); }
     b.append(mini, meta);
     b.addEventListener('click', () => { state.themeId = id; layoutDeck(); renderAll(); });
     box.append(b);
@@ -1116,21 +1377,23 @@ function renderDetect() {
   const d = state.detected, box = $('detect');
   box.replaceChildren();
   if (!d) return;
-  const th = THEMES[d.id];
+  const th = THEMES[state.autoId];
   const pick = document.createElement('div');
   pick.className = 'pick';
   const b = document.createElement('b'); b.textContent = th.name;
   const s = document.createElement('span');
-  s.textContent = d.id === 'general' ? 'No strong subject found, so a neutral template' : `Reads as ${th.for.toLowerCase()}`;
+  s.textContent = usingAI() ? 'Picked by AI' : state.autoId === 'general' ? 'No strong subject found, so a neutral template' : `Reads as ${th.for.toLowerCase()}`;
   pick.append(b, s);
   box.append(pick);
-  if (d.id !== 'general') {
+  if (usingAI() && state.aiReason) {
+    const p = document.createElement('p'); p.className = 'why'; p.textContent = state.aiReason; box.append(p);
+  } else if (state.autoId !== 'general') {
     const bars = document.createElement('div');
     bars.className = 'bars';
     for (const r of d.ranked.slice(0, 3)) {
       if (r.share <= 0) continue;
       const row = document.createElement('div');
-      row.className = 'bar' + (r.id === d.id ? ' win' : '');
+      row.className = 'bar' + (r.id === state.autoId ? ' win' : '');
       const l = document.createElement('span'); l.textContent = THEMES[r.id].for.split(/ [&,]/)[0];
       const tr = document.createElement('div'); tr.className = 'track';
       const f = document.createElement('div'); f.className = 'fill'; f.style.width = Math.round(r.share * 100) + '%';
@@ -1140,15 +1403,15 @@ function renderDetect() {
       bars.append(row);
     }
     box.append(bars);
-    if (d.keywords.length) {
-      const kw = document.createElement('div');
-      kw.className = 'kw';
-      kw.setAttribute('aria-label', 'Words that decided the match');
-      for (const w of d.keywords) { const e = document.createElement('span'); e.textContent = w; kw.append(e); }
-      box.append(kw);
-    }
   }
-  if (state.themeId !== d.id) {
+  if (d.keywords.length && !usingAI()) {
+    const kw = document.createElement('div');
+    kw.className = 'kw';
+    kw.setAttribute('aria-label', 'Words that decided the match');
+    for (const w of d.keywords) { const e = document.createElement('span'); e.textContent = w; kw.append(e); }
+    box.append(kw);
+  }
+  if (state.themeId !== state.autoId) {
     const p = document.createElement('p'); p.className = 'hint';
     p.textContent = `You switched to ${THEMES[state.themeId].name}.`;
     box.append(p);
@@ -1156,7 +1419,7 @@ function renderDetect() {
 }
 
 /* Progress steps */
-const STEPS = [['read', 'Reading pages'], ['struct', 'Finding structure'], ['match', 'Matching a template'], ['build', 'Building slides']];
+const STEPS = [['read', 'Reading pages'], ['struct', 'Finding structure'], ['match', 'Matching a template'], ['ai', 'Designing with AI'], ['build', 'Building slides']];
 function showSteps() {
   $('progress').hidden = false;
   $('steps').replaceChildren(...STEPS.map(([id, label]) => {
@@ -1166,18 +1429,47 @@ function showSteps() {
     li.append(dot, t); return li;
   }));
 }
-function step(id, text) {
+function step(id, text, doneLabel) {
   const li = $('st-' + id);
   if (!li) return;
-  if (text === null) { li.className = 'done'; li.querySelector('.dot').textContent = '✓'; li.lastChild.textContent = STEPS.find(s => s[0] === id)[1]; return; }
+  if (text === null) { li.className = 'done'; li.querySelector('.dot').textContent = '✓'; li.lastChild.textContent = doneLabel || STEPS.find(s => s[0] === id)[1]; return; }
   li.className = 'active';
   li.lastChild.textContent = text;
+}
+
+/* Ask the AI designer for a plan. Resolves 'ok', 'off' or 'fail' and never throws. */
+let aiCtl = null;
+async function designWithAI(fresh, onTick) {
+  if (!$('optAI').checked || !(await aiAvailable())) return { result: 'off' };
+  aiCtl = new AbortController();
+  const t0 = performance.now();
+  const timer = setInterval(() => onTick && onTick(Math.round((performance.now() - t0) / 1000)), 1000);
+  $('skipAI').hidden = false;
+  try {
+    const plan = await aiDesign(state.doc, aiCtl.signal, fresh);
+    planToSlides(plan, state.doc, opts());
+    return { result: 'ok', plan };
+  } catch (e) {
+    console.warn('AI design failed', e);
+    return { result: 'fail', message: aiErrorText(e && e.code === 'bad_plan' ? { code: 'other' } : e) };
+  } finally {
+    clearInterval(timer);
+    $('skipAI').hidden = true;
+    aiCtl = null;
+  }
+}
+function applyPlan(plan) {
+  state.aiPlan = plan;
+  state.aiReason = S(plan.reason, 220);
+  state.autoId = THEMES[plan.template] ? plan.template : state.detected.id;
+  state.themeId = state.autoId;
 }
 
 async function handleFile(file) {
   $('err').hidden = true;
   $('exStatus').textContent = '';
-  if (!file) return;
+  setMsg('');
+  if (!file || state.busy) return;
   if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { showErr('That file is not a PDF. In Google Docs, use File → Download → PDF document.'); return; }
   if (typeof pdfjsLib === 'undefined') { showErr('The PDF reader did not load. Check your connection and reload the page.'); return; }
   const chip = $('filechip');
@@ -1187,6 +1479,7 @@ async function handleFile(file) {
   const sz = document.createElement('span'); sz.className = 'tag'; sz.textContent = (file.size / 1024 / 1024).toFixed(1) + ' MB';
   chip.append(nm, sz);
   showSteps();
+  setBusy(true, 'Reading your document', 'Finding the title, headings, lists and key figures.');
   const t0 = performance.now();
   try {
     if (pdfjsLib.GlobalWorkerOptions) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -1196,10 +1489,18 @@ async function handleFile(file) {
     step('match', 'Matching a template');
     const det = detectTheme(doc);
     step('match', null);
+    state.doc = doc; state.fileName = file.name; state.detected = det; state.autoId = det.id; state.themeId = det.id;
+    state.aiPlan = null; state.aiReason = ''; state.isSample = false; state.cur = 0;
+
+    step('ai', 'Designing with AI');
+    setBusy(true, 'Designing your deck', 'Claude is rewriting your document as slide copy and choosing a layout for each slide. This usually takes 20 to 60 seconds.');
+    const ai = await designWithAI(false, sec => step('ai', `Designing with AI · ${sec} s`));
+    if (ai.result === 'ok') { applyPlan(ai.plan); step('ai', null, 'Designed with AI'); }
+    else { step('ai', null, ai.result === 'off' ? 'AI design off, quick layout' : 'Quick layout used'); if (ai.message) setMsg(ai.message); }
+
     step('build', 'Building slides');
     await fontsReady;
-    state.doc = doc; state.fileName = file.name; state.detected = det; state.themeId = det.id; state.isSample = false; state.cur = 0;
-    state.slides = buildDeck(doc, opts());
+    state.slides = buildSlides();
     layoutDeck();
     state.ms = performance.now() - t0;
     step('build', null);
@@ -1207,9 +1508,22 @@ async function handleFile(file) {
   } catch (e) {
     console.error(e);
     showErr(e && e.name === 'PasswordException' ? 'This PDF is password-protected. Download it again from Google Docs without a password.' : (e && e.message) || 'This PDF could not be read.');
+  } finally {
+    setBusy(false);
   }
 }
 function showErr(msg) { const e = $('err'); e.hidden = false; e.textContent = msg; }
+
+async function redesign(fresh) {
+  if (state.busy) return;
+  setMsg('');
+  setBusy(true, 'Designing your deck', 'Claude is rewriting your document as slide copy and choosing a layout for each slide. This usually takes 20 to 60 seconds.');
+  const ai = await designWithAI(fresh, sec => { $('busyTitle').textContent = `Designing your deck · ${sec} s`; });
+  setBusy(false, 'Designing your deck');
+  if (ai.result === 'ok') { applyPlan(ai.plan); state.cur = 0; rebuild(); }
+  else if (ai.message) { setMsg(ai.message.replace(' This is the quick layout.', '').replace(', so this is the quick layout.', '.').replace('This is the quick layout; try', 'Try')); rebuild(); }
+  else rebuild();
+}
 
 /* Export */
 function deckFileName() { return (state.doc.title || 'Slides').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) + '.pptx'; }
@@ -1318,8 +1632,9 @@ function setupGoogleUi() {
 function init() {
   state.doc = SAMPLE; state.fileName = SAMPLE.fileName;
   state.detected = detectTheme(SAMPLE);
-  state.themeId = state.detected.id;
-  state.slides = buildDeck(SAMPLE, opts());
+  state.autoId = state.themeId = state.detected.id;
+  applyPlan(SAMPLE_PLAN);
+  state.slides = buildSlides();
   layoutDeck();
   renderAll();
   fontsReady.then(() => { layoutDeck(); renderAll(); });
@@ -1333,6 +1648,21 @@ function init() {
   window.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 
   $('optAgenda').addEventListener('change', rebuild);
+  $('optAI').addEventListener('change', () => {
+    if ($('optAI').checked && !state.aiPlan) { redesign(false); return; }
+    if (!$('optAI').checked) setMsg('');
+    rebuild();
+  });
+  $('skipAI').addEventListener('click', () => { if (aiCtl) aiCtl.abort(); });
+  $('btnRedesign').addEventListener('click', () => redesign(true));
+  aiAvailable().then(ok => {
+    $('btnRedesign').hidden = !ok;
+    const note = $('aiNote');
+    if (!ok) {
+      note.hidden = false;
+      note.textContent = IN_ARTIFACT ? 'AI design is not available in this view, so new documents get the quick layout.' : 'AI design needs the DocDeck AI server. See "AI design" in the README. Until then, new documents get the quick layout.';
+    }
+  });
   $('optClosing').addEventListener('change', rebuild);
   $('prev').addEventListener('click', () => go(-1));
   $('next').addEventListener('click', () => go(1));

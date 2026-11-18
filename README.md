@@ -32,6 +32,61 @@ slides in your browser. Nothing is uploaded to a server.
    preview and the export match. All fonts are Google Fonts, so they render
    exactly in Google Slides.
 
+## AI design
+
+Before the preview appears, Claude redesigns the whole deck:
+
+- rewrites the document as slide copy, with titles that state the point and short bullets
+- picks a layout for each slide: section dividers, bullets, big-number stats,
+  cards, numbered steps or a timeline, two-sided comparisons, quotes and key
+  statements
+- picks the template that fits the subject and says why
+- writes speaker notes for every slide from the document
+
+It only uses facts from the document. A design usually takes 20 to 60 seconds.
+**Skip AI** uses the quick layout instead, and **Redesign with AI** asks for a
+fresh version. If AI design is unavailable or fails, the page falls back to the
+quick layout and says why.
+
+Where Claude runs depends on where the page is hosted:
+
+- **On claude.ai** (the published artifact): the page asks Claude directly with
+  the viewer's own Claude account. Nothing to set up.
+- **On your own site** (GitHub Pages): the page calls the small server in
+  [`worker/`](worker/), a Cloudflare Worker that holds your Anthropic API key
+  and calls Claude Opus 5.5. The key never reaches visitors' browsers, and the
+  Worker only accepts requests from your site.
+
+### Deploy the AI server (Cloudflare Workers, free tier)
+
+You need an [Anthropic API key](https://console.anthropic.com/) and a free
+[Cloudflare account](https://dash.cloudflare.com/sign-up). Each design is
+billed to your Anthropic account.
+
+```bash
+cd worker
+npm install
+npx wrangler login
+npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler deploy
+```
+
+`wrangler deploy` prints the Worker's address, for example
+`https://docdeck-ai.yourname.workers.dev`. Put it in `AI_ENDPOINT` near the top
+of the script in `app.html`, run `./build.sh`, and push. If you move the site to
+a custom domain, change `ALLOWED_ORIGIN` in `worker/wrangler.toml` and deploy
+again.
+
+The design rules live in two places that must stay identical: `DESIGN_RULES`
+in `app.html` (used on claude.ai) and in `worker/src/index.ts`.
+
+## Quick layout (no AI)
+
+The rule-based steps in [How it works](#how-it-works) run first on every
+document (reading the PDF, finding its structure, scoring the subject). On their
+own they produce the quick layout, which is used when AI design is off or
+unavailable.
+
 ## Templates
 
 | Template | Used for | Type |
@@ -53,6 +108,7 @@ To add a template, add an entry to `THEMES` and a word list to `LEX` in `app.htm
 - `app.html`: the whole app (HTML, CSS and JS in one file). Edit this one.
 - `build.sh`: wraps `app.html` into a complete `index.html` for hosting.
 - `index.html`: the built page. Upload this to any static host.
+- `worker/`: the optional AI server for self-hosted copies (Cloudflare Worker).
 
 ```bash
 ./build.sh
@@ -94,5 +150,6 @@ format, and opens the new presentation.
 
 - PDFs must contain real text. Scanned documents need OCR first.
 - Images and tables in the document are not carried over yet.
-- Summaries are extractive (the most informative sentences, trimmed), not
-  rewritten. The full text is always in the speaker notes.
+- The quick layout reuses your own sentences. AI design rewrites them as slide
+  copy but is told never to add facts that are not in the document. Check
+  numbers before presenting.

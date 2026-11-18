@@ -1,0 +1,11 @@
+name = "docdeck-ai"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# The site allowed to call this Worker. Change it if you use a custom domain.
+ALLOWED_ORIGIN = "https://valentinovietti34-byte.github.io"
+
+# Set the API key as a secret, never here:
+#   npx wrangler secret put ANTHROPIC_API_KEY
