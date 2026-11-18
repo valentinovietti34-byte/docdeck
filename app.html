@@ -158,6 +158,14 @@ details.setup input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; p
 .ai-badge.quick::before { background: var(--muted); }
 .stagebar .right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .why { margin: 0; font-size: 13px; color: var(--muted); }
+.keybox { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.keybox label { font-weight: 600; font-size: 12.5px; cursor: default; }
+.keybox .row { display: flex; gap: 6px; }
+.keybox input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+.keybox a, .linkbtn { color: var(--accent); font-weight: 600; }
+.linkbtn { appearance: none; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; }
+.addchip { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--accent); background: var(--soft); border-radius: 4px; padding: 0 5px; margin-right: 5px; vertical-align: 1px; }
+.notes .added { display: block; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
 footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -202,7 +210,17 @@ footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; d
         <div class="tpls" id="tpls" role="group" aria-label="Templates"></div>
         <div class="opts">
           <label><input type="checkbox" id="optAI" checked> Design with AI</label>
+          <label><input type="checkbox" id="optExpand" checked> Let AI expand on topics</label>
           <p class="hint" id="aiNote" hidden></p>
+          <div class="keybox" id="keyBox" hidden>
+            <label for="akey">Turn on AI with your Anthropic API key</label>
+            <div class="row">
+              <input id="akey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+              <button class="btn small" id="akeySave" type="button">Turn on</button>
+            </div>
+            <p class="hint">Kept only in this browser and sent only to Anthropic. Designs are billed to your Anthropic account. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key</a></p>
+          </div>
+          <p class="hint" id="keyOn" hidden>AI uses your API key saved in this browser. <button class="linkbtn" id="akeyRemove" type="button">Remove key</button></p>
           <label><input type="checkbox" id="optAgenda" checked> Agenda slide</label>
           <label><input type="checkbox" id="optClosing" checked> Closing slide</label>
         </div>
@@ -451,7 +469,17 @@ async function pdfToDoc(buf, fileName, onStep) {
     const headSize = l.size >= body * 1.12;
     const standalone = !nx || gapBelow > lineGap * 1.35 || Math.abs(nx.size - l.size) > 0.6 || nx.bold !== l.bold;
     const boldHead = !headSize && l.bold && l.text.length <= 90 && !/[.,;]$/.test(l.text) && standalone && Math.abs(l.size - body) < 1.5 && !BULLET_RE.test(l.text);
-    if (headSize || boldHead) {
+    // Titles typed as normal text: a short line at the left margin that starts a new block.
+    const words = l.text.split(/\s+/).length;
+    const shortLine = !headSize && words <= 10 && l.text.length <= 80 && !BULLET_RE.test(l.text) && Math.abs(l.size - body) < 1.5 && l.x <= leftX + 2;
+    const prevEnded = !prev || prev.page !== l.page || gapAbove > lineGap * 1.6 || /[.!?:]["\u201D)]?$/.test(prev.text);
+    const nextIsBody = nx && nx.page === l.page && Math.abs(nx.size - l.size) < 1 && nx.text.length > l.text.length;
+    const capsHead = shortLine && prevEnded && /[A-Z]{3}/.test(l.text) && l.text === l.text.toUpperCase();
+    const colonHead = shortLine && words <= 6 && prevEnded && /:$/.test(l.text) && !!nx;
+    const plainHead = shortLine && words <= 9 && prevEnded && nextIsBody && !/[.!?,;:]$/.test(l.text) && /^[A-Z0-9"\u201C]/.test(l.text) && l.width < colW * 0.7;
+    if (headSize || boldHead || capsHead || colonHead || plainHead) {
+      if (colonHead) l.text = l.text.replace(/:$/, '');
+      if (capsHead && !headSize) l.text = l.text.toLowerCase().replace(/(^|[\s-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
       const key = headSize ? l.size : 0;
       if (last && last.kind === 'h' && last.key === key && last.page === l.page && gapAbove < Math.max(l.size, 8) * 1.9) {
         last.text += ' ' + l.text;
@@ -1050,7 +1078,7 @@ function buildPptx(models, title) {
 const DESIGN_RULES = `You are a senior presentation designer. Turn the document below into a clear, professional slide deck.
 
 Content
-- Use only facts from the document. Never invent numbers, names, dates or claims.
+- Base every slide on the document. Never invent numbers, names, dates, quotes or claims about the document's subject.
 - One idea per slide. Aim for roughly one slide per 150-250 words of source, between 4 and 18 content slides.
 - Write slide copy, not prose. Titles state the point in 8 words or fewer ("Revenue grew 22% in 2026", not "Revenue").
 - Bullets: 3-5 per slide, 14 words or fewer each, no trailing periods. Use "lead" for a short bold label (2-4 words) when points have natural labels; otherwise leave it out.
@@ -1078,6 +1106,37 @@ Deck
   nature (environment, climate, agriculture), legal (law, policy, government), general (anything else).
 - "reason": one sentence on why that template fits.`;
 
+const EXPAND_ON = `Expanding topics (allowed for this deck)
+- Where a topic is thin, add context the audience would find useful: a definition, background, an example, a common practice or an implication.
+- Add at most one new slide per section and at most 4 new slides in total. You may also add a bullet or two to existing slides.
+- Use only widely accepted general knowledge. Never add statistics, dates, quotes, names, prices or claims about the document's own organization, people or results.
+- Set "added": true on every slide that contains anything not in the document, and say in "added_note" (one sentence) what you added. Set "added": false on all other slides.`;
+
+const EXPAND_OFF = `Expanding topics (not allowed for this deck)
+- Use only what the document says. Set "added": false on every slide.`;
+
+function designRules(expand) { return `${DESIGN_RULES}\n\n${expand ? EXPAND_ON : EXPAND_OFF}`; }
+
+/* The same deck shape as the worker's Zod schema, for structured outputs. */
+const TEMPLATE_IDS = ['business', 'tech', 'science', 'education', 'health', 'creative', 'nature', 'legal', 'general'];
+const DECK_SCHEMA = (() => {
+  const str = { type: 'string' };
+  const obj = (props, req) => ({ type: 'object', properties: props, required: req || Object.keys(props), additionalProperties: false });
+  const item = obj({ heading: str, text: str });
+  const side = obj({ heading: str, points: { type: 'array', items: str } });
+  const slide = obj({
+    layout: { type: 'string', enum: ['section', 'bullets', 'stats', 'cards', 'steps', 'comparison', 'quote', 'statement'] },
+    title: str, kicker: str, notes: str,
+    bullets: { type: 'array', items: obj({ lead: str, text: str }, ['text']) },
+    stats: { type: 'array', items: obj({ value: str, caption: str }) },
+    cards: { type: 'array', items: item },
+    steps: { type: 'array', items: item },
+    left: side, right: side, quote: str, by: str, text: str,
+    added: { type: 'boolean' }, added_note: str,
+  }, ['layout', 'title', 'kicker', 'notes', 'added']);
+  return obj({ template: { type: 'string', enum: TEMPLATE_IDS }, reason: str, title: str, subtitle: str, slides: { type: 'array', items: slide } });
+})();
+
 const PLAN_SHAPE = `{"template":"business","reason":"…","title":"…","subtitle":"…","slides":[
 {"layout":"section","title":"…","kicker":"","notes":""},
 {"layout":"bullets","title":"…","kicker":"…","notes":"…","bullets":[{"lead":"…","text":"…"},{"text":"…"}]},
@@ -1086,7 +1145,8 @@ const PLAN_SHAPE = `{"template":"business","reason":"…","title":"…","subtitl
 {"layout":"steps","title":"…","kicker":"…","notes":"…","steps":[{"heading":"…","text":"…"}]},
 {"layout":"comparison","title":"…","kicker":"…","notes":"…","left":{"heading":"…","points":["…"]},"right":{"heading":"…","points":["…"]}},
 {"layout":"quote","title":"…","kicker":"…","notes":"…","quote":"…","by":"…"},
-{"layout":"statement","title":"…","kicker":"…","notes":"…","text":"…"}]}`;
+{"layout":"statement","title":"…","kicker":"…","notes":"…","text":"…"}]}
+Every slide also has "added" (true or false) and, when added is true, "added_note".`;
 
 const AI_MAX_CHARS = 150000;
 
@@ -1094,6 +1154,8 @@ function docToText(doc) {
   return doc.blocks.map(b => b.kind === 'h' ? '#'.repeat(Math.min(b.level || 1, 4)) + ' ' + b.text : b.kind === 'li' ? '- ' + b.text : b.text).join('\n\n');
 }
 function getAiEndpoint() { try { return localStorage.getItem('docdeck.aiEndpoint') || AI_ENDPOINT; } catch (e) { return AI_ENDPOINT; } }
+function getUserKey() { try { return localStorage.getItem('docdeck.anthropicKey') || ''; } catch (e) { return ''; } }
+const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.4.0/+esm';
 
 let sampleFnP = null;
 function getSampleFn() {
@@ -1101,20 +1163,51 @@ function getSampleFn() {
   if (!sampleFnP) sampleFnP = Promise.resolve(window.claude.use('sample')).catch(() => null);
   return sampleFnP;
 }
-async function aiAvailable() { return IN_ARTIFACT ? !!(await getSampleFn()) : !!getAiEndpoint(); }
+async function aiAvailable() { return IN_ARTIFACT ? !!(await getSampleFn()) : !!(getAiEndpoint() || getUserKey()); }
+
+/* Self-hosted without a server: call Claude from this browser with the visitor's own API key. */
+async function designWithKey(doc, text, expand, signal) {
+  let Anthropic;
+  try { Anthropic = (await import(SDK_URL)).default; } catch (e) { throw { code: 'endpoint', message: 'The Claude library could not load.' }; }
+  const client = new Anthropic({ apiKey: getUserKey(), dangerouslyAllowBrowser: true });
+  let msg;
+  try {
+    msg = await client.beta.messages.create({
+      model: 'claude-opus-5-5',
+      max_tokens: 16000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: DECK_SCHEMA } },
+      messages: [{ role: 'user', content: `${designRules(expand)}\n\nReply with JSON only.\n\n<document>\nTitle: ${doc.title}\nSubtitle: ${doc.subtitle || ''}\n\n${text}\n</document>` }],
+    }, { signal });
+  } catch (e) {
+    if (e instanceof Anthropic.APIUserAbortError) throw { code: 'cancelled' };
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw { code: 'endpoint', message: 'Your Anthropic API key was not accepted. Check it under "Design with AI".' };
+    if (e instanceof Anthropic.RateLimitError) throw { code: 'rate_limited' };
+    if (e instanceof Anthropic.APIConnectionError) throw { code: 'endpoint', message: 'Could not reach Claude. Check your connection.' };
+    if (e instanceof Anthropic.APIError) throw { code: 'endpoint', message: `Claude returned an error (${e.status}).` };
+    throw e;
+  }
+  if (msg.stop_reason === 'refusal') throw { code: 'refused' };
+  if (msg.stop_reason === 'max_tokens') throw { code: 'endpoint', message: 'The design came back incomplete.' };
+  const block = msg.content.find(b => b.type === 'text');
+  try { return JSON.parse(block.text); } catch (e) { throw { code: 'other' }; }
+}
 
 async function aiDesign(doc, signal, fresh) {
+  const expand = $('optExpand').checked;
   const text = docToText(doc);
   if (text.length > AI_MAX_CHARS) throw { code: 'too_long' };
   if (IN_ARTIFACT) {
     const sample = await getSampleFn();
     if (!sample) throw { code: 'unavailable' };
-    const prompt = `${DESIGN_RULES}\n\nReply with only one JSON object in this shape:\n${PLAN_SHAPE}\n\n<document>\nTitle: ${doc.title}\nSubtitle: ${doc.subtitle || ''}\n\n${text}\n</document>`;
+    const prompt = `${designRules(expand)}\n\nReply with only one JSON object in this shape:\n${PLAN_SHAPE}\n\n<document>\nTitle: ${doc.title}\nSubtitle: ${doc.subtitle || ''}\n\n${text}\n</document>`;
     return sample.json(prompt, { modelTier: 'default', effort: 'medium', signal, cache: fresh ? false : { gcTime: 3600000 } });
   }
+  if (!getAiEndpoint()) return designWithKey(doc, text, expand, signal);
   const r = await fetch(getAiEndpoint(), {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-    body: JSON.stringify({ doc: { title: doc.title, subtitle: doc.subtitle || '', text } }),
+    body: JSON.stringify({ doc: { title: doc.title, subtitle: doc.subtitle || '', text }, expand }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.deck) throw { code: 'endpoint', message: j.error || `The AI designer returned an error (${r.status}).` };
@@ -1142,7 +1235,8 @@ function planToSlides(plan, doc, o) {
   const body = [];
   for (const r of plan.slides.slice(0, 40)) {
     if (!r || typeof r !== 'object') continue;
-    const base = { title: S(r.title, 120), kicker: S(r.kicker, 48), notes: S(r.notes, 2000) };
+    const addedNote = r.added === true ? (S(r.added_note, 300) || 'This slide includes context that is not in your document.') : '';
+    const base = { title: S(r.title, 120), kicker: S(r.kicker, 48), notes: (addedNote ? `Added by AI: ${addedNote} Check before presenting.\n\n` : '') + S(r.notes, 2000), added: !!addedNote, addedNote };
     const bullets = arr(r.bullets, 6).map(b => {
       const lead = S(b && b.lead, 40);
       return { lead: lead ? lead.replace(/[:.\s]*$/, ':') : undefined, text: S(b && b.text, 180).replace(/\.$/, '') };
@@ -1243,6 +1337,7 @@ const SAMPLE_PLAN = {
     { layout: 'cards', title: 'Three sites, three formats', kicker: 'Growth strategy', notes: 'Each site has weekday foot traffic above 9,000 people and no specialty competitor within 400 metres.', cards: [{ heading: 'Riverside', text: 'Drive-through format built for the commuter rush' }, { heading: 'Arts District', text: 'Larger café that hosts evening events' }, { heading: 'Campus', text: 'Compact kiosk built around mobile ordering' }] },
     { layout: 'comparison', title: 'Beans and subscriptions earn more', kicker: 'Growth strategy', notes: 'Bagged beans and wholesale are 14% of revenue. Subscriptions carry a 58% gross margin against 34% for café sales, so we will add twelve grocery accounts and launch a subscription service.', left: { heading: 'Café sales', points: ['34% gross margin', 'Most of our revenue today'] }, right: { heading: 'Wholesale and subscriptions', points: ['58% gross margin on subscriptions', '14% of revenue today', 'Twelve new grocery accounts planned'] } },
     { layout: 'bullets', title: 'Halving the wait at peak hours', kicker: 'Growth strategy', notes: 'Mobile ordering reaches every store by March. Peak wait should fall from six minutes to under three, which was the most common complaint in our survey.', bullets: [{ lead: 'Mobile ordering', text: 'Live in every store by March' }, { lead: 'Peak wait', text: 'From six minutes to under three' }, { lead: 'Why it matters', text: 'Wait time is the top complaint in our survey' }] },
+    { layout: 'cards', title: 'Why speed builds loyalty', kicker: 'Growth strategy', added: true, added_note: 'General points on why shorter waits matter to cafés; the plan itself does not make these claims.', notes: 'Speed is part of the product for weekday customers. Shorter waits keep the commuter crowd coming back.', cards: [{ heading: 'Convenience wins', text: 'Weekday customers often pick the café that fits their commute' }, { heading: 'Queues cost sales', text: 'Some customers walk away when the line looks long' }, { heading: 'Orders move ahead', text: 'Pre-ordering shifts the rush away from the counter' }] },
     { layout: 'stats', title: 'What 2027 looks like', kicker: 'Financial outlook', notes: 'We forecast $10.9M revenue in fiscal 2027 on $1.6M of capital investment. Operating margin is 12%, rising to 15% by 2028.', stats: [{ value: '$10.9M', caption: 'Revenue forecast for fiscal 2027' }, { value: '$1.6M', caption: 'Capital investment across three sites' }, { value: '15%', caption: 'Operating margin by 2028, up from 12%' }] },
     { layout: 'bullets', title: 'Two risks, both covered', kicker: 'Risks', notes: 'Green coffee prices rose 30% in a year, so we will lock in 60% of 2027 volume through forward contracts. Each new store needs fourteen trained baristas, so the training academy starts in January.', bullets: [{ lead: 'Coffee prices', text: 'Up 30% in a year; 60% of 2027 volume locked in' }, { lead: 'Hiring', text: 'Fourteen baristas per store; training academy opens in January' }] },
     { layout: 'steps', title: 'From approval to first opening', kicker: 'Next steps', notes: 'We ask the board to approve the budget in December. The Riverside lease is signed by January 31 and the first new store opens in May 2027.', steps: [{ heading: 'December', text: 'Board approves the expansion budget' }, { heading: 'January 31', text: 'Riverside lease signed' }, { heading: 'May 2027', text: 'First new store opens' }] },
@@ -1309,7 +1404,8 @@ function renderAll() {
     f.className = 'frame';
     f.append(renderSlide(m));
     const cap = document.createElement('span');
-    cap.textContent = `${i + 1}. ${state.slides[i].title || state.slides[i].text || ''}`;
+    if (state.slides[i].added) { const c = document.createElement('span'); c.className = 'addchip'; c.textContent = 'AI added'; cap.append(c); }
+    cap.append(`${i + 1}. ${state.slides[i].title || state.slides[i].text || ''}`);
     cap.style.whiteSpace = 'nowrap'; cap.style.overflow = 'hidden'; cap.style.textOverflow = 'ellipsis';
     b.append(f, cap);
     b.addEventListener('click', () => { state.cur = i; renderStage(); markThumbs(); });
@@ -1326,6 +1422,8 @@ function renderAll() {
   badge.className = 'ai-badge' + (usingAI() ? '' : ' quick');
   badge.textContent = usingAI() ? 'Designed with AI' : 'Quick layout';
   info.append(b, t, badge);
+  const addedCount = state.slides.filter(x => x.added).length;
+  if (usingAI() && addedCount) { const x = document.createElement('span'); x.textContent = ` \u00B7 ${addedCount} slide${addedCount === 1 ? '' : 's'} with AI-added context`; info.append(x); }
   if (!state.isSample && state.ms) { const x = document.createElement('span'); x.textContent = ` · ready in ${(state.ms / 1000).toFixed(1)} s`; info.append(x); }
   $('sampleNote').hidden = !state.isSample;
 }
@@ -1339,7 +1437,17 @@ function renderStage() {
   const notes = state.slides[state.cur].notes;
   const n = $('notes');
   n.hidden = !notes;
-  if (notes) { n.replaceChildren(); const b = document.createElement('b'); b.textContent = 'Speaker notes'; n.append(b, document.createTextNode(notes)); }
+  if (notes) {
+    n.replaceChildren();
+    const b = document.createElement('b'); b.textContent = 'Speaker notes';
+    n.append(b);
+    const sl = state.slides[state.cur];
+    if (sl.added) {
+      const a = document.createElement('span'); a.className = 'added';
+      a.textContent = `Added by AI: ${sl.addedNote} Check before presenting.`;
+      n.append(a, document.createTextNode(notes.replace(/^Added by AI:.*?\n\n/s, '')));
+    } else n.append(document.createTextNode(notes));
+  }
 }
 function go(d) {
   const nx = Math.max(0, Math.min(state.models.length - 1, state.cur + d));
@@ -1520,7 +1628,8 @@ async function redesign(fresh) {
   setBusy(true, 'Designing your deck', 'Claude is rewriting your document as slide copy and choosing a layout for each slide. This usually takes 20 to 60 seconds.');
   const ai = await designWithAI(fresh, sec => { $('busyTitle').textContent = `Designing your deck · ${sec} s`; });
   setBusy(false, 'Designing your deck');
-  if (ai.result === 'ok') { applyPlan(ai.plan); state.cur = 0; rebuild(); }
+  state.ms = 0;
+  if (ai.result === 'ok') { applyPlan(ai.plan); step('ai', null, 'Designed with AI'); state.cur = 0; rebuild(); }
   else if (ai.message) { setMsg(ai.message.replace(' This is the quick layout.', '').replace(', so this is the quick layout.', '.').replace('This is the quick layout; try', 'Try')); rebuild(); }
   else rebuild();
 }
@@ -1628,6 +1737,17 @@ function setupGoogleUi() {
   if (oneClick) loadGis().catch(() => {});
 }
 
+async function refreshAiUi() {
+  const ok = await aiAvailable();
+  const selfHosted = !IN_ARTIFACT && !getAiEndpoint();
+  $('btnRedesign').hidden = !ok;
+  $('keyBox').hidden = !selfHosted || !!getUserKey();
+  $('keyOn').hidden = !selfHosted || !getUserKey();
+  const note = $('aiNote');
+  note.hidden = ok || selfHosted;
+  if (!ok && IN_ARTIFACT) note.textContent = 'AI design is not available in this view, so new documents get the quick layout.';
+}
+
 /* Wire up */
 function init() {
   state.doc = SAMPLE; state.fileName = SAMPLE.fileName;
@@ -1655,14 +1775,24 @@ function init() {
   });
   $('skipAI').addEventListener('click', () => { if (aiCtl) aiCtl.abort(); });
   $('btnRedesign').addEventListener('click', () => redesign(true));
-  aiAvailable().then(ok => {
-    $('btnRedesign').hidden = !ok;
-    const note = $('aiNote');
-    if (!ok) {
-      note.hidden = false;
-      note.textContent = IN_ARTIFACT ? 'AI design is not available in this view, so new documents get the quick layout.' : 'AI design needs the DocDeck AI server. See "AI design" in the README. Until then, new documents get the quick layout.';
-    }
+  $('optExpand').addEventListener('change', async () => {
+    if ($('optAI').checked && await aiAvailable()) redesign(false);
   });
+  $('akeySave').addEventListener('click', () => {
+    const v = $('akey').value.trim();
+    if (!/^sk-ant-[\w-]{20,}$/.test(v)) { setMsg('That does not look like an Anthropic API key. It starts with sk-ant-.'); return; }
+    try { localStorage.setItem('docdeck.anthropicKey', v); } catch (e) { setMsg('This browser blocked saving the key, so AI cannot be turned on here.'); return; }
+    $('akey').value = '';
+    setMsg('AI design is on.');
+    refreshAiUi();
+    if (!state.isSample) redesign(false);
+  });
+  $('akeyRemove').addEventListener('click', () => {
+    try { localStorage.removeItem('docdeck.anthropicKey'); } catch (e) { /* nothing stored */ }
+    setMsg('Your API key was removed from this browser.');
+    refreshAiUi();
+  });
+  refreshAiUi();
   $('optClosing').addEventListener('change', rebuild);
   $('prev').addEventListener('click', () => go(-1));
   $('next').addEventListener('click', () => go(1));

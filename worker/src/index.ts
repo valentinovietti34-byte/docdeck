@@ -35,6 +35,8 @@ const Slide = z.object({
   quote: z.string().optional(),
   by: z.string().optional(),
   text: z.string().optional(),
+  added: z.boolean(),
+  added_note: z.string().optional(),
 });
 const Deck = z.object({
   template: z.enum(TEMPLATES),
@@ -47,7 +49,7 @@ const Deck = z.object({
 const DESIGN_RULES = `You are a senior presentation designer. Turn the document below into a clear, professional slide deck.
 
 Content
-- Use only facts from the document. Never invent numbers, names, dates or claims.
+- Base every slide on the document. Never invent numbers, names, dates, quotes or claims about the document's subject.
 - One idea per slide. Aim for roughly one slide per 150-250 words of source, between 4 and 18 content slides.
 - Write slide copy, not prose. Titles state the point in 8 words or fewer ("Revenue grew 22% in 2026", not "Revenue").
 - Bullets: 3-5 per slide, 14 words or fewer each, no trailing periods. Use "lead" for a short bold label (2-4 words) when points have natural labels; otherwise leave it out.
@@ -75,8 +77,21 @@ Deck
   nature (environment, climate, agriculture), legal (law, policy, government), general (anything else).
 - "reason": one sentence on why that template fits.`;
 
-function buildPrompt(doc: { title: string; subtitle: string; text: string }): string {
-  return `${DESIGN_RULES}
+const EXPAND_ON = `Expanding topics (allowed for this deck)
+- Where a topic is thin, add context the audience would find useful: a definition, background, an example, a common practice or an implication.
+- Add at most one new slide per section and at most 4 new slides in total. You may also add a bullet or two to existing slides.
+- Use only widely accepted general knowledge. Never add statistics, dates, quotes, names, prices or claims about the document's own organization, people or results.
+- Set "added": true on every slide that contains anything not in the document, and say in "added_note" (one sentence) what you added. Set "added": false on all other slides.`;
+
+const EXPAND_OFF = `Expanding topics (not allowed for this deck)
+- Use only what the document says. Set "added": false on every slide.`;
+
+function designRules(expand: boolean): string {
+  return `${DESIGN_RULES}\n\n${expand ? EXPAND_ON : EXPAND_OFF}`;
+}
+
+function buildPrompt(doc: { title: string; subtitle: string; text: string }, expand: boolean): string {
+  return `${designRules(expand)}
 
 Reply with JSON only.
 
@@ -113,8 +128,10 @@ export default {
     }
 
     let doc: { title: string; subtitle: string; text: string };
+    let expand = false;
     try {
-      const body = (await request.json()) as { doc?: Partial<typeof doc> };
+      const body = (await request.json()) as { doc?: Partial<typeof doc>; expand?: boolean };
+      expand = body.expand === true;
       doc = {
         title: String(body.doc?.title ?? "").slice(0, 300),
         subtitle: String(body.doc?.subtitle ?? "").slice(0, 300),
@@ -136,7 +153,7 @@ export default {
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort: "medium", format: betaZodOutputFormat(Deck) },
-        messages: [{ role: "user", content: buildPrompt(doc) }],
+        messages: [{ role: "user", content: buildPrompt(doc, expand) }],
       });
       if (response.stop_reason === "refusal") {
         return json({ error: "Claude declined to design this document." }, 422, headers);
