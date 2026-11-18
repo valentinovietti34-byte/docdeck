@@ -1,0 +1,1372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>DocDeck</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Turn a Google Docs PDF into a Google Slides deck in seconds, with a template matched to the document's subject.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;700&family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Nunito:wght@400;700&family=Roboto+Slab:wght@400;700&family=Roboto:wght@400;700&family=Roboto+Mono:wght@400;700&family=Poppins:wght@400;700&family=Open+Sans:wght@400;700&family=Playfair+Display:wght@400;700&family=Raleway:wght@400;700&family=Lora:wght@400;700&family=Merriweather:wght@400;700&family=Libre+Franklin:wght@400;700&display=swap">
+<style>
+/* Layout: a working tool. Sidebar of steps (upload → detected template → export) beside a stage with the live deck. */
+:root {
+  --bg: #F2F3F6;
+  --panel: #FFFFFF;
+  --ink: #151821;
+  --muted: #5B6271;
+  --line: #DCE0E7;
+  --accent: #C2410C;
+  --accent-ink: #FFFFFF;
+  --soft: #FCEBE2;
+  --stage: #E4E7ED;
+  --good: #1F7A4D;
+  --bad: #B42318;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1116; --panel: #171A21; --ink: #E8EBF1; --muted: #9AA1AF; --line: #2A2F3B;
+    --accent: #FF8A4C; --accent-ink: #1C0C03; --soft: #3A2317; --stage: #0A0C10; --good: #5BD69A; --bad: #FF8A80;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1116; --panel: #171A21; --ink: #E8EBF1; --muted: #9AA1AF; --line: #2A2F3B;
+  --accent: #FF8A4C; --accent-ink: #1C0C03; --soft: #3A2317; --stage: #0A0C10; --good: #5BD69A; --bad: #FF8A80;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { padding-block: 18px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand svg { flex: none; }
+.brand h1 { font-family: var(--font-display); font-size: 22px; letter-spacing: -0.01em; margin: 0; line-height: 1; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.flowline { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12.5px; flex-wrap: wrap; }
+.flowline b { color: var(--ink); font-weight: 600; }
+.flowline .arr { opacity: .6; }
+
+main.app { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding-block: 4px 40px; align-items: start; }
+@media (max-width: 900px) { main.app { grid-template-columns: minmax(0, 1fr); } }
+.side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card h2 { margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.step { font-family: var(--font-mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-weight: 400; }
+
+.drop { position: relative; border: 1.5px dashed var(--line); border-radius: 8px; padding: 22px 16px; text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.drop strong { font-size: 15px; }
+.drop span { color: var(--muted); font-size: 12.5px; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+.hint kbd { font-family: var(--font-ui); font-size: 11.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--bg); }
+.filechip { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.filechip .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.filechip .tag { margin-left: auto; flex: none; font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--soft); color: var(--accent); font-weight: 600; }
+
+.progress { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.progress li { list-style: none; display: flex; gap: 8px; align-items: center; color: var(--muted); }
+.progress ul { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.progress li.done { color: var(--ink); }
+.progress li .dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line); flex: none; display: grid; place-items: center; font-size: 9px; }
+.progress li.done .dot { background: var(--good); border-color: var(--good); color: var(--panel); }
+.progress li.active .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.err { color: var(--bad); font-size: 13px; margin: 0; }
+
+.detect { display: flex; flex-direction: column; gap: 10px; }
+.detect .pick { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.detect .pick b { font-family: var(--font-display); font-size: 20px; }
+.detect .pick span { color: var(--muted); font-size: 13px; }
+.bars { display: flex; flex-direction: column; gap: 5px; }
+.bar { display: grid; grid-template-columns: 112px minmax(0, 1fr) 34px; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.bar .track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--muted); border-radius: 3px; opacity: .45; }
+.bar.win { color: var(--ink); font-weight: 600; }
+.bar.win .fill { background: var(--accent); opacity: 1; }
+.bar .pct { text-align: right; font-variant-numeric: tabular-nums; }
+.kw { display: flex; flex-wrap: wrap; gap: 5px; }
+.kw span { font-size: 11.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+
+.tpls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 900px) { .tpls { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 150px; overflow-x: auto; padding-bottom: 6px; } }
+.tpl { appearance: none; border: 1.5px solid transparent; background: none; padding: 0; text-align: left; cursor: pointer; border-radius: 8px; display: flex; flex-direction: column; gap: 4px; color: inherit; font: inherit; min-width: 0; }
+.tpl .mini { border-radius: 5px; overflow: hidden; outline: 1px solid var(--line); }
+.tpl .meta { display: flex; justify-content: space-between; gap: 4px; padding: 0 2px 2px; font-size: 12px; align-items: center; }
+.tpl .meta b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpl .auto { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); flex: none; }
+.tpl[aria-pressed="true"] { border-color: var(--accent); padding: 3px; }
+.tpl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.opts { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.opts label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.opts input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+.btn { appearance: none; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; font-weight: 600; font-size: 14px; padding: 10px 14px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+.btn:hover { border-color: var(--muted); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn[disabled] { opacity: .55; cursor: progress; }
+.btn.small { padding: 6px 10px; font-size: 13px; }
+.exports { display: flex; flex-direction: column; gap: 8px; }
+.status { font-size: 13px; margin: 0; min-height: 1em; }
+.status.ok { color: var(--good); }
+.status.no { color: var(--bad); }
+.howto { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.howto ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.howto a { color: var(--accent); font-weight: 600; }
+details.setup summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+details.setup .row { display: flex; gap: 6px; margin-top: 8px; }
+details.setup input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+
+.stagecol { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.stagebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; }
+.stagebar .info { font-size: 13px; color: var(--muted); }
+.stagebar .info b { color: var(--ink); }
+.sample-note { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--accent); font-weight: 600; }
+.stage { background: var(--stage); border-radius: 12px; padding: clamp(12px, 3vw, 32px); display: flex; flex-direction: column; gap: 12px; }
+.stage .big { box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 10px 30px -12px rgba(0,0,0,.25); border-radius: 4px; overflow: hidden; }
+.navrow { display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.notes { font-size: 12.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 120px; overflow: auto; white-space: pre-wrap; }
+.notes b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 2px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.thumb { appearance: none; background: none; border: 0; padding: 0; cursor: pointer; display: flex; flex-direction: column; gap: 4px; text-align: left; color: var(--muted); font: inherit; font-size: 11.5px; min-width: 0; }
+.thumb .frame { border-radius: 4px; overflow: hidden; outline: 1px solid var(--line); transition: outline-color .12s; }
+.thumb:hover .frame { outline-color: var(--muted); }
+.thumb[aria-current="true"] .frame { outline: 2.5px solid var(--accent); }
+.thumb[aria-current="true"] { color: var(--ink); font-weight: 600; }
+.thumb:focus-visible .frame { outline: 2.5px solid var(--accent); }
+
+/* Rendered slide: positions in % of the 13.333 × 7.5 in page; type in container units so every size scales. */
+.slide { position: relative; width: 100%; aspect-ratio: 16 / 9; max-width: 100%; overflow: hidden; container-type: inline-size; }
+.slide > div { position: absolute; }
+.slide .t { display: flex; flex-direction: column; overflow-wrap: break-word; }
+.slide .t p { margin: 0; position: relative; }
+.slide .t .b { position: absolute; left: 0; top: 0; }
+.slide .t strong { font-weight: 700; }
+
+footer.foot { padding-block: 8px 28px; color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M7 10h10M7 14h10M7 18h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <rect x="15" y="17" width="20" height="14" rx="2" fill="var(--accent)"/>
+        <path d="M19 22h8M19 26h12" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>DocDeck</h1>
+        <p>Google Docs PDF in, Google Slides deck out.</p>
+      </div>
+    </div>
+    <div class="flowline" aria-label="How it works">
+      <b>Drop PDF</b><span class="arr">→</span><b>Template picked from content</b><span class="arr">→</span><b>Open in Slides</b>
+    </div>
+  </header>
+
+  <main class="app">
+    <aside class="side">
+      <section class="card" aria-labelledby="h-up">
+        <h2 id="h-up"><span class="step">1</span>Your document</h2>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept="application/pdf,.pdf" aria-label="Choose a PDF">
+          <strong>Drop a PDF here</strong>
+          <span>or click to choose a file</span>
+        </label>
+        <p class="hint">In Google Docs: <kbd>File</kbd> → <kbd>Download</kbd> → <kbd>PDF document</kbd>. Everything runs in your browser; the file is never uploaded.</p>
+        <div class="filechip" id="filechip" hidden></div>
+        <div class="progress" id="progress" hidden><ul id="steps"></ul></div>
+        <p class="err" id="err" hidden></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-tpl">
+        <h2 id="h-tpl"><span class="step">2</span>Template</h2>
+        <div class="detect" id="detect"></div>
+        <div class="tpls" id="tpls" role="group" aria-label="Templates"></div>
+        <div class="opts">
+          <label><input type="checkbox" id="optAgenda" checked> Agenda slide</label>
+          <label><input type="checkbox" id="optClosing" checked> Closing slide</label>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-ex">
+        <h2 id="h-ex"><span class="step">3</span>Get your slides</h2>
+        <div class="exports">
+          <button class="btn primary" id="btnGoogle" type="button">Open in Google Slides</button>
+          <button class="btn" id="btnPptx" type="button">Download .pptx</button>
+          <p class="status" id="exStatus" role="status"></p>
+        </div>
+        <div class="howto" id="howto" hidden>
+          <ol>
+            <li>Save the deck with <b>Download .pptx</b> above.</li>
+            <li>Open <a href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">Google Drive</a>, then <b>New → File upload</b> and pick the file.</li>
+            <li>Open it and choose <b>File → Save as Google Slides</b>. Fonts and colors carry over.</li>
+          </ol>
+        </div>
+        <details class="setup" id="setup" hidden>
+          <summary>Set up one-click export to Google Slides</summary>
+          <p class="hint" style="margin-top:8px">Paste an OAuth Client ID from Google Cloud (Drive API enabled, this site's address added as an authorized JavaScript origin). The README explains each step.</p>
+          <div class="row">
+            <input id="gcid" type="text" placeholder="1234-abc.apps.googleusercontent.com" autocomplete="off" spellcheck="false" aria-label="Google OAuth Client ID">
+            <button class="btn small" id="gcidSave" type="button">Save</button>
+          </div>
+        </details>
+      </section>
+    </aside>
+
+    <section class="stagecol" aria-label="Deck preview">
+      <div class="stagebar">
+        <div class="info" id="info"></div>
+        <span class="sample-note" id="sampleNote">Sample document · drop your PDF to replace it</span>
+      </div>
+      <div class="stage">
+        <div class="big" id="big"></div>
+        <div class="navrow">
+          <button class="btn small" id="prev" type="button" aria-label="Previous slide">←</button>
+          <span id="pos">1 / 1</span>
+          <button class="btn small" id="next" type="button" aria-label="Next slide">→</button>
+        </div>
+        <div class="notes" id="notes" hidden></div>
+      </div>
+      <div class="strip" id="strip"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Works best with PDFs downloaded from Google Docs, where headings become slide titles.</span>
+    <span>Full paragraph text is kept in each slide's speaker notes.</span>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* ------------------------------------------------------------------ *
+ * Config. For one-click "Create in Google Slides" on your own domain,
+ * put your OAuth Client ID here (or paste it in the page's setup box).
+ * ------------------------------------------------------------------ */
+const GOOGLE_CLIENT_ID = '';
+
+const IN_ARTIFACT = !!(window.claude && typeof window.claude.use === 'function');
+
+/* ============================ Templates ============================ */
+const W = 13.333, H = 7.5;
+const PT = 100 / (72 * W);   // container-width units per typographic point
+const IN = 100 / W;          // container-width units per inch
+
+const THEMES = {
+  business: { name: 'Boardroom', for: 'Business & finance', motif: 'band', bg: 'F7F8FA', ink: '14213D', muted: '5B6577', accent: 'C8963E', accent2: '2C4A7C', hi: '9A6B22', dark: '14213D', onDark: 'FFFFFF', onDarkAccent: 'D9AE62', head: 'Montserrat', body: 'Lato', label: 'Montserrat', bullet: '▪' },
+  tech:     { name: 'Circuit', for: 'Technology & software', motif: 'grid', bg: '0E1726', ink: 'E8EEF8', muted: '8D9DB5', accent: '3DD6F5', accent2: '8B6CFF', hi: '3DD6F5', dark: '0A111D', onDark: 'E8EEF8', onDarkAccent: '3DD6F5', head: 'Space Grotesk', body: 'Inter', label: 'Roboto Mono', bullet: '›', darkBg: true },
+  science:  { name: 'Lab Notebook', for: 'Science & research', motif: 'rule', bg: 'FFFFFF', ink: '1B2B34', muted: '5F7480', accent: '0F8B8D', accent2: 'E4572E', hi: '0B7476', dark: '0F3D47', onDark: 'FFFFFF', onDarkAccent: '6ED8CF', head: 'Roboto Slab', body: 'Roboto', label: 'Roboto Mono', bullet: '–', serif: true },
+  education:{ name: 'Classroom', for: 'Education & learning', motif: 'arc', bg: 'FDFCF7', ink: '23395B', muted: '5D6B82', accent: 'F2B134', accent2: '3E8E7E', hi: 'A3620F', dark: '23395B', onDark: 'FFFFFF', onDarkAccent: 'F2B134', head: 'Nunito', body: 'Nunito', label: 'Nunito', bullet: '•' },
+  health:   { name: 'Clinic', for: 'Health & wellbeing', motif: 'arc', bg: 'F4FAF9', ink: '113D3C', muted: '557574', accent: '2BA88F', accent2: '7FC8F8', hi: '1A7F6B', dark: '113D3C', onDark: 'FFFFFF', onDarkAccent: '7FE0C8', head: 'Poppins', body: 'Open Sans', label: 'Poppins', bullet: '•' },
+  creative: { name: 'Studio', for: 'Marketing & creative', motif: 'frame', bg: 'FFF3EE', ink: '2B1A33', muted: '6D5A70', accent: 'FF5A5F', accent2: '6A4C93', hi: 'D3343A', dark: '2B1A33', onDark: 'FFF3EE', onDarkAccent: 'FF7A7E', head: 'Playfair Display', body: 'Raleway', label: 'Raleway', bullet: '—', serif: true },
+  nature:   { name: 'Field Guide', for: 'Environment & sustainability', motif: 'leaf', bg: 'F1F4EC', ink: '1F3B2D', muted: '5E6F60', accent: '3F7D4E', accent2: 'D9A441', hi: '35693F', dark: '1F3B2D', onDark: 'F1F4EC', onDarkAccent: 'D9A441', head: 'Lora', body: 'Lato', label: 'Lato', bullet: '•', serif: true },
+  legal:    { name: 'Charter', for: 'Law, policy & government', motif: 'rule', bg: 'FFFFFF', ink: '2A1E1E', muted: '6B5E5E', accent: '7A1F2B', accent2: 'B8A07E', hi: '7A1F2B', dark: '3A1218', onDark: 'FFFFFF', onDarkAccent: 'D4BC94', head: 'Merriweather', body: 'Libre Franklin', label: 'Libre Franklin', bullet: '–', serif: true },
+  general:  { name: 'Clean Slate', for: 'Anything else', motif: 'minimal', bg: 'FFFFFF', ink: '1C1F26', muted: '666C78', accent: '3B5BDB', accent2: '94A3B8', hi: '3B5BDB', dark: '1C1F26', onDark: 'FFFFFF', onDarkAccent: '91A7FF', head: 'Inter', body: 'Inter', label: 'Inter', bullet: '•' },
+};
+const THEME_ORDER = ['business', 'tech', 'science', 'education', 'health', 'creative', 'nature', 'legal', 'general'];
+
+/* Subject vocabulary used to pick a template. */
+const LEX = {
+  business: 'revenue revenues profit profits margin margins market markets customer customers client clients sales quarter quarterly fiscal budget budgets forecast forecasts strategy strategic stakeholder stakeholders investor investors investment investments roi kpi kpis growth pricing competitor competitors competitive acquisition shareholder shareholders ebitda cash funding startup operations operational supplier suppliers vendor vendors partnership b2b enterprise q1 q2 q3 q4 board executive company companies business businesses finance financial cost costs expense expenses pipeline quota retail store stores expansion franchise wholesale profitability capital lease earnings valuation equity loan credit invoice payroll hiring headcount okr okrs',
+  tech: 'software api apis cloud server servers database databases algorithm algorithms ai ml machine learning model models neural code coding developer developers deploy deployment infrastructure platform app apps application applications backend frontend kubernetes microservice microservices security encryption network latency scalability scalable integration integrations interface github open-source compute gpu gpus automation devops sdk architecture authentication bug bugs release releases version digital cyber cybersecurity data dataset datasets llm llms programming javascript python endpoint endpoints mobile web browser saas hardware chip chips robot robotics blockchain',
+  science: 'hypothesis hypotheses experiment experiments experimental method methods methodology results analysis sample samples specimen specimens laboratory lab molecule molecules molecular cell cells protein proteins gene genes genetic dna rna enzyme enzymes reaction reactions chemical chemicals compound compounds physics quantum particle particles variable variables significant statistical statistically correlation observed observation observations measurement measurements theory research study studies findings figure species organism organisms biology chemistry astronomy neuron neurons microscope peer-reviewed abstract',
+  education: 'student students learning lesson lessons teacher teachers teaching classroom classrooms curriculum course courses syllabus school schools grade grades homework assignment assignments exam exams quiz quizzes learners learner education educational instructor instructors pedagogy objectives unit chapter chapters reading literacy history essay essays university campus semester tutor tutoring lecture lectures rubric worksheet kindergarten teen teens literature vocabulary',
+  health: 'patient patients health healthcare clinical clinic clinics treatment treatments therapy therapies diagnosis symptoms symptom disease diseases medical medicine medicines hospital hospitals nurse nurses nursing care wellness wellbeing nutrition diet exercise mental chronic prevention vaccine vaccines dose doses physician physicians mortality outcomes sleep stress anxiety depression fitness pharmacy blood heart cancer diabetes',
+  creative: 'brand branding campaign campaigns creative creatives design designer designers audience audiences storytelling story stories content social instagram tiktok youtube influencer influencers visual visuals aesthetic logo identity marketing engagement video videos photography art artist artists music film films fashion copywriting tone mood typography illustration followers viral moodboard',
+  nature: 'environment environmental sustainability sustainable climate carbon emissions emission renewable renewables energy solar wind ecosystem ecosystems biodiversity forest forests ocean oceans water conservation wildlife habitat habitats recycling waste pollution green planet soil agriculture farming farmers drought rainfall wetland wetlands plastic plastics biodegradable deforestation net-zero',
+  legal: 'policy policies law laws legal regulation regulations regulatory compliance court courts contract contracts clause clauses rights legislation government governance statute statutes liability jurisdiction act article amendment council committee citizens ordinance privacy gdpr enforcement judge plaintiff defendant attorney counsel tribunal constitutional parliament senate federal municipal election elections voters license licensing',
+};
+const WORDMAP = (() => {
+  const m = new Map();
+  for (const [cat, words] of Object.entries(LEX)) for (const w of words.split(/\s+/)) {
+    if (!m.has(w)) m.set(w, []);
+    if (!m.get(w).includes(cat)) m.get(w).push(cat);
+  }
+  return m;
+})();
+
+function detectTheme(doc) {
+  const scores = Object.fromEntries(Object.keys(LEX).map(k => [k, 0]));
+  const hits = Object.fromEntries(Object.keys(LEX).map(k => [k, new Map()]));
+  const add = (text, weight) => {
+    for (const raw of (text.toLowerCase().match(/[a-z][a-z0-9'-]*/g) || [])) {
+      const w = raw.replace(/'s$/, '');
+      const cats = WORDMAP.get(w);
+      if (!cats) continue;
+      for (const c of cats) {
+        scores[c] += weight / cats.length;
+        hits[c].set(w, (hits[c].get(w) || 0) + weight);
+      }
+    }
+  };
+  add(doc.title, 4);
+  add(doc.subtitle || '', 2);
+  for (const b of doc.blocks) add(b.text, b.kind === 'h' ? 2 : 1);
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const total = ranked.reduce((s, [, v]) => s + v, 0);
+  const [top, topScore] = ranked[0];
+  const id = topScore < 3 ? 'general' : top;
+  const share = total ? topScore / total : 0;
+  const keywords = id === 'general' ? [] : [...hits[id].entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([w]) => w);
+  return { id, share, ranked: ranked.map(([k, v]) => ({ id: k, share: total ? v / total : 0 })), keywords };
+}
+
+/* ======================== PDF → document model ===================== */
+const BULLET_RE = /^\s*(?:[•●○◦▪▫■□➢►▸‣⁃–—*·-]|\(?\d{1,2}[.)]|\(?[a-zA-Z][.)])\s+/;
+
+async function pdfToDoc(buf, fileName, onStep) {
+  const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
+  const n = pdf.numPages;
+  const raw = [];
+  const pageH = [];
+  for (let p = 1; p <= n; p++) {
+    onStep('read', `Reading page ${p} of ${n}`);
+    const page = await pdf.getPage(p);
+    pageH[p] = page.getViewport({ scale: 1 }).height;
+    const tc = await page.getTextContent();
+    const bold = {};
+    try {
+      await page.getOperatorList();
+      for (const id of new Set(tc.items.map(i => i.fontName).filter(Boolean))) {
+        try {
+          const f = page.commonObjs.get(id);
+          const famStyle = (tc.styles[id] && tc.styles[id].fontFamily) || '';
+          bold[id] = !!(f && (f.bold || f.black || /bold|black|heavy|semibold|demi/i.test((f.name || '') + famStyle)));
+        } catch (e) { /* font not resolved */ }
+      }
+    } catch (e) { /* bold detection is optional */ }
+    let cur = null;
+    for (const it of tc.items) {
+      if (typeof it.str !== 'string') continue;
+      const s = it.str;
+      const tx = it.transform;
+      const size = Math.hypot(tx[2], tx[3]) || it.height || 10;
+      const x = tx[4], y = tx[5];
+      if (s.trim()) {
+        const same = cur && Math.abs(y - cur.y) <= Math.max(size, cur.maxSize) * 0.45 && x >= cur.right - size * 1.5;
+        if (!same) {
+          cur = { page: p, text: '', x, y, right: x, maxSize: size, sz: {}, chars: 0, boldChars: 0 };
+          raw.push(cur);
+        } else if (x - cur.right > size * 0.15 && !/\s$/.test(cur.text) && !/^\s/.test(s)) {
+          cur.text += ' ';
+        }
+        cur.text += s;
+        const c = s.replace(/\s/g, '').length;
+        const k = Math.round(size * 2) / 2;
+        cur.sz[k] = (cur.sz[k] || 0) + c;
+        cur.chars += c;
+        if (bold[it.fontName]) cur.boldChars += c;
+        cur.maxSize = Math.max(cur.maxSize, size);
+        cur.right = Math.max(cur.right, x + (it.width || 0));
+      } else if (cur && s.length && !/\s$/.test(cur.text)) {
+        cur.text += ' ';
+      }
+      if (it.hasEOL) cur = null;
+    }
+  }
+  onStep('read', null);
+  onStep('struct', 'Finding title, headings and lists');
+
+  let lines = raw.map(l => {
+    const size = +Object.entries(l.sz).sort((a, b) => b[1] - a[1])[0][0];
+    return { page: l.page, text: l.text.replace(/\s+/g, ' ').trim(), x: l.x, y: l.y, width: l.right - l.x, size, bold: l.chars > 0 && l.boldChars / l.chars > 0.6 };
+  }).filter(l => l.text);
+
+  if (!lines.length) throw new Error('This PDF has no selectable text. It may be a scan or an image. In Google Docs, use File → Download → PDF document and try again.');
+
+  // Drop running headers, footers and page numbers.
+  const norm = t => t.toLowerCase().replace(/\d+/g, '#').trim();
+  const seen = new Map();
+  for (const l of lines) { const k = norm(l.text); if (!seen.has(k)) seen.set(k, new Set()); seen.get(k).add(l.page); }
+  lines = lines.filter(l => {
+    const ph = pageH[l.page];
+    const edge = l.y > ph * 0.92 || l.y < ph * 0.08;
+    if (!edge) return true;
+    if (/^(page\s*)?\d+(\s*(of|\/)\s*\d+)?$/i.test(l.text)) return false;
+    if (n >= 2 && seen.get(norm(l.text)).size >= Math.max(2, Math.ceil(n * 0.5))) return false;
+    return true;
+  });
+
+  // Body size = the size carrying the most characters.
+  const bySize = {};
+  for (const l of lines) bySize[l.size] = (bySize[l.size] || 0) + l.text.length;
+  const body = +Object.entries(bySize).sort((a, b) => b[1] - a[1])[0][0];
+  const bodyLines = lines.filter(l => Math.abs(l.size - body) < 0.6);
+  const widths = bodyLines.map(l => l.width).sort((a, b) => a - b);
+  const colW = widths[Math.floor(widths.length * 0.9)] || 400;
+  const gaps = [];
+  for (let i = 1; i < bodyLines.length; i++) {
+    const a = bodyLines[i - 1], b = bodyLines[i];
+    const g = a.y - b.y;
+    if (a.page === b.page && g > 0 && g < body * 3) gaps.push(g);
+  }
+  gaps.sort((a, b) => a - b);
+  const lineGap = gaps[Math.floor(gaps.length / 2)] || body * 1.3;
+  const xCount = {};
+  for (const l of bodyLines) { const k = Math.round(l.x); xCount[k] = (xCount[k] || 0) + 1; }
+  const leftX = +(Object.entries(xCount).sort((a, b) => b[1] - a[1])[0] || [0])[0];
+  const rights = bodyLines.map(l => l.x + l.width).sort((a, b) => a - b);
+  const colRight = rights[Math.floor(rights.length * 0.9)] || leftX + colW;
+
+  const blocks = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i], prev = lines[i - 1], nx = lines[i + 1];
+    const last = blocks[blocks.length - 1];
+    const gapAbove = prev && prev.page === l.page ? prev.y - l.y : Infinity;
+    const gapBelow = nx && nx.page === l.page ? l.y - nx.y : Infinity;
+    const headSize = l.size >= body * 1.12;
+    const standalone = !nx || gapBelow > lineGap * 1.35 || Math.abs(nx.size - l.size) > 0.6 || nx.bold !== l.bold;
+    const boldHead = !headSize && l.bold && l.text.length <= 90 && !/[.,;]$/.test(l.text) && standalone && Math.abs(l.size - body) < 1.5 && !BULLET_RE.test(l.text);
+    if (headSize || boldHead) {
+      const key = headSize ? l.size : 0;
+      if (last && last.kind === 'h' && last.key === key && last.page === l.page && gapAbove < Math.max(l.size, 8) * 1.9) {
+        last.text += ' ' + l.text;
+      } else {
+        blocks.push({ kind: 'h', key, size: l.size, text: l.text, page: l.page, y: l.y });
+      }
+      continue;
+    }
+    if (BULLET_RE.test(l.text)) {
+      blocks.push({ kind: 'li', text: l.text.replace(BULLET_RE, ''), x: l.x, size: l.size, page: l.page, lastY: l.y, lastText: l.text, lastWidth: l.width, lastRight: l.x + l.width });
+      continue;
+    }
+    // Lists whose bullets are drawn as shapes: indented lines, where a short previous line ends the item.
+    if (l.x > leftX + body * 1.2 && Math.abs(l.size - body) < 1) {
+      const contItem = last && last.kind === 'li' && last.page === l.page && (last.lastY - l.y) <= lineGap * 1.45 && Math.abs(l.x - (last.textX || last.x)) < 3 && last.lastRight >= colRight * 0.85 && !(/^[A-Z]/.test(l.text) && !/[,\-]$/.test(last.lastText));
+      if (contItem) {
+        last.text += ' ' + l.text; last.lastY = l.y; last.lastText = l.text; last.lastWidth = l.width; last.lastRight = l.x + l.width;
+      } else {
+        blocks.push({ kind: 'li', text: l.text.replace(BULLET_RE, ''), x: l.x - 3, textX: l.x, size: l.size, page: l.page, lastY: l.y, lastText: l.text, lastWidth: l.width, lastRight: l.x + l.width });
+      }
+      continue;
+    }
+    if (last && (last.kind === 'p' || last.kind === 'li')) {
+      const sameStyle = Math.abs(last.size - l.size) < 1;
+      const cont = last.page === l.page ? (last.lastY - l.y) <= lineGap * 1.45 : !/[.!?:]["”]?$/.test(last.lastText);
+      const indentOk = last.kind === 'li' ? l.x > last.x + 2 : true;
+      const ended = last.kind === 'p' && /[.!?:]["”)]?$/.test(last.lastText) && last.lastWidth < colW * 0.85;
+      if (sameStyle && cont && indentOk && !ended) {
+        last.text += (/-$/.test(last.text) ? '' : ' ') + l.text;
+        last.page = l.page; last.lastY = l.y; last.lastText = l.text; last.lastWidth = l.width; last.lastRight = l.x + l.width;
+        continue;
+      }
+    }
+    blocks.push({ kind: 'p', text: l.text, x: l.x, size: l.size, page: l.page, lastY: l.y, lastText: l.text, lastWidth: l.width });
+  }
+
+  // Title and subtitle.
+  let title = '', subtitle = '';
+  const heads = blocks.filter(b => b.kind === 'h');
+  const maxHead = Math.max(0, ...heads.map(h => h.size));
+  if (blocks[0] && blocks[0].kind === 'h' && blocks[0].page === 1 && blocks[0].size >= maxHead - 0.5) {
+    title = blocks.shift().text;
+  } else if (blocks[0] && blocks[0].kind === 'p' && blocks[0].page === 1 && blocks[0].text.length < 90 && blocks[0].size > body * 1.05) {
+    title = blocks.shift().text;
+  }
+  if (blocks[0]) {
+    const b = blocks[0];
+    const sizeCount = heads.filter(h => Math.abs(h.size - b.size) < 0.6).length;
+    if (b.kind === 'h' && b.key > 0 && sizeCount === 1 && b.page === 1 && title) {
+      subtitle = blocks.shift().text;
+    } else if (b.kind === 'p' && b.page === 1 && title && b.text.length <= 140 && blocks[1] && blocks[1].kind === 'h') {
+      subtitle = blocks.shift().text;
+    }
+  }
+  if (!title) title = prettyName(fileName);
+
+  // Heading levels: bigger type = higher level; bold body-size headings sit under them.
+  const sizes = [];
+  for (const h of blocks.filter(b => b.kind === 'h' && b.key > 0)) if (!sizes.some(s => Math.abs(s - h.size) < 0.75)) sizes.push(h.size);
+  sizes.sort((a, b) => b - a);
+  for (const b of blocks) {
+    if (b.kind !== 'h') continue;
+    b.level = b.key > 0 ? sizes.findIndex(s => Math.abs(s - b.size) < 0.75) + 1 : sizes.length + 1;
+  }
+  onStep('struct', null);
+  return {
+    title: clean(title), subtitle: clean(subtitle), pages: n,
+    blocks: blocks.map(b => ({ kind: b.kind, level: b.level, text: clean(b.text) })).filter(b => b.text),
+  };
+}
+const clean = t => (t || '').replace(/\s+/g, ' ').replace(/\s+([,.;:!?])/g, '$1').trim();
+const prettyName = f => (f || 'Untitled').replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+/* ======================== Document → slide plan ==================== */
+const FILLER = /^(however|moreover|furthermore|additionally|in addition|in fact|overall|in summary|in conclusion|to summarize|as a result|for example|for instance|importantly|notably|finally|firstly|secondly|thirdly|lastly|also|first|second|third),?\s+/i;
+const NUM_RE = /(?:[$€£¥]\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|bn|b|million|billion|thousand)\b)?|\b\d[\d,]*(?:\.\d+)?\s?(?:%|percent\b|x\b|k\b|m\b|bn\b|million\b|billion\b)|\b\d{1,3}(?:,\d{3})+\b)/i;
+
+function sentences(t) {
+  return t.split(/(?<=[.!?])\s+(?=[A-Z0-9“"(])/).map(s => s.trim()).filter(Boolean);
+}
+function condense(s) {
+  s = s.replace(BULLET_RE, '').replace(FILLER, '').replace(/\s*\([^)]{28,}\)/g, '').trim();
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  const words = s.split(/\s+/);
+  if (words.length > 26) {
+    let cut = -1;
+    for (let i = 9; i < Math.min(words.length - 3, 25); i++) if (/[,;:]$/.test(words[i])) cut = i;
+    s = cut > 0 ? words.slice(0, cut + 1).join(' ').replace(/[,;:]$/, '') + '…' : words.slice(0, 22).join(' ').replace(/[,;:.]$/, '') + '…';
+  }
+  return s.replace(/\.$/, '');
+}
+function splitLead(s) {
+  const m = s.match(/^([^:]{2,48}):\s+(.{4,})$/) || s.match(/^(.{2,40}?)\s[–—-]\s(.{6,})$/);
+  if (m && m[1].split(/\s+/).length <= 5) return { lead: m[1].trim() + ':', text: m[2].charAt(0).toUpperCase() + m[2].slice(1) };
+  return { text: s };
+}
+function pickSentences(text, max) {
+  const ss = sentences(text);
+  if (ss.length <= max) return ss;
+  const scored = ss.map((s, i) => ({ s, i, sc: (i === 0 ? 3 : 0) + (NUM_RE.test(s) ? 2 : 0) + (/\b(will|must|should|key|main|goal|aim|recommend|propose)\b/i.test(s) ? 1 : 0) - Math.max(0, s.split(/\s+/).length - 30) / 10 }));
+  return scored.sort((a, b) => b.sc - a.sc).slice(0, max).sort((a, b) => a.i - b.i).map(x => x.s);
+}
+function toBullets(content) {
+  const paraCount = content.filter(c => c.kind === 'p').length;
+  const per = paraCount >= 3 ? 1 : 2;
+  const out = [];
+  for (let i = 0; i < content.length; i++) {
+    const c = content[i];
+    if (c.kind === 'hdeep') {
+      const nx = content[i + 1];
+      if (nx && nx.kind !== 'hdeep') { out.push({ lead: c.text.replace(/[:.]$/, '') + ':', text: condense(sentences(nx.text)[0] || nx.text) }); i++; }
+      else out.push({ text: c.text });
+      continue;
+    }
+    if (c.kind === 'li') { out.push(splitLead(condense(c.text))); continue; }
+    const short = c.text.split(/\s+/).length <= 22;
+    for (const s of short ? [c.text] : pickSentences(c.text, per)) out.push(splitLead(condense(s)));
+  }
+  return out.filter(b => b.text.length > 1);
+}
+function deriveTitle(text) {
+  const first = sentences(text)[0] || text;
+  const clause = first.split(/[,:;—]/)[0].replace(/\.$/, '');
+  const words = clause.split(/\s+/);
+  return words.length <= 8 ? clause : words.slice(0, 6).join(' ') + '…';
+}
+function normValue(v) {
+  return v.trim().replace(/\s?percent/i, '%').replace(/\s?billion|\s?bn/i, 'B').replace(/\s?million/i, 'M').replace(/\s?thousand/i, 'K').replace(/\s(?=[kmb%x]$)/i, '');
+}
+function shorten(s, n) {
+  const w = s.split(/\s+/);
+  return w.length <= n ? s : w.slice(0, n).join(' ').replace(/[,;:.]$/, '') + '…';
+}
+
+function contentSlides(title, kicker, content) {
+  const notes = content.map(c => c.text).join('\n\n');
+  if (content.length === 1 && content[0].kind === 'p' && /^[“"]/.test(content[0].text) && content[0].text.length < 320) {
+    const m = content[0].text.match(/^[“"](.+?)[”"]\s*[–—-]?\s*(.*)$/);
+    return [{ type: 'quote', title, kicker, quote: m ? m[1] : content[0].text, by: m ? m[2] : '', notes }];
+  }
+  const bullets = toBullets(content);
+  if (!bullets.length) return [];
+  const withNum = bullets.map(b => ({ b, m: ((b.lead ? b.lead + ' ' : '') + b.text).match(NUM_RE) }));
+  const numCount = withNum.filter(x => x.m).length;
+  if (bullets.length >= 2 && bullets.length <= 4 && numCount >= Math.max(2, bullets.length - 1)) {
+    return [{ type: 'stats', title, kicker, notes, stats: withNum.filter(x => x.m).map(x => ({ value: normValue(x.m[0]), caption: shorten((x.b.lead ? x.b.lead + ' ' : '') + x.b.text, 18) })) }];
+  }
+  if (bullets.length === 1 && bullets[0].text.split(/\s+/).length <= 34) {
+    return [{ type: 'statement', title, kicker, text: (bullets[0].lead ? bullets[0].lead + ' ' : '') + bullets[0].text, notes }];
+  }
+  const per = bullets.every(b => (b.lead || '').length + b.text.length < 70) ? 8 : 5, out = [];
+  const chunks = Math.ceil(bullets.length / per);
+  const size = Math.ceil(bullets.length / chunks);
+  for (let i = 0; i < chunks; i++) {
+    out.push({ type: 'bullets', title: i ? `${title} (cont.)` : title, kicker, bullets: bullets.slice(i * size, (i + 1) * size), notes });
+  }
+  return out;
+}
+
+function buildDeck(doc, opts) {
+  const levels = [...new Set(doc.blocks.filter(b => b.kind === 'h').map(b => b.level))].sort((a, b) => a - b);
+  const L1 = levels[0], L2 = levels[1];
+  const intro = [];
+  const sections = [];
+  let sec = null, sub = null;
+  for (const b of doc.blocks) {
+    if (b.kind === 'h' && b.level === L1) { sec = { title: b.text, content: [], subs: [] }; sections.push(sec); sub = null; continue; }
+    if (b.kind === 'h' && b.level === L2) {
+      if (!sec) { sec = { title: b.text, content: [], subs: [] }; sections.push(sec); sub = null; continue; }
+      sub = { title: b.text, content: [] }; sec.subs.push(sub); continue;
+    }
+    const item = b.kind === 'h' ? { kind: 'hdeep', text: b.text } : b;
+    (sub ? sub.content : sec ? sec.content : intro).push(item);
+  }
+
+  const slides = [];
+  const date = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  slides.push({ type: 'title', title: doc.title, subtitle: doc.subtitle, kicker: date, notes: doc.subtitle || '' });
+  if (opts.agenda && sections.length >= 3) slides.push({ type: 'agenda', title: 'Agenda', items: sections.map(s => s.title) });
+
+  if (!sections.length) {
+    // No headings: one slide per paragraph or per short run of list items.
+    const groups = [];
+    for (const c of intro) {
+      const g = groups[groups.length - 1];
+      if (c.kind === 'li' && g && g.every(x => x.kind === 'li') && g.length < 5) g.push(c); else groups.push([c]);
+    }
+    for (const g of groups) {
+      const head = g[0].kind === 'li' ? doc.title : deriveTitle(g[0].text);
+      slides.push(...contentSlides(head, '', g));
+    }
+  } else {
+    if (intro.length) slides.push(...contentSlides('Overview', '', intro));
+    sections.forEach((s, i) => {
+      const num = String(i + 1).padStart(2, '0');
+      const subsWithContent = s.subs.filter(x => x.content.length);
+      if (subsWithContent.length) {
+        slides.push({ type: 'section', num, title: s.title, items: s.subs.map(x => x.title), notes: '' });
+        if (s.content.length) slides.push(...contentSlides(s.title, num, s.content));
+        for (const x of subsWithContent) slides.push(...contentSlides(x.title, `${num} · ${shorten(s.title, 6)}`, x.content));
+      } else {
+        const cs = contentSlides(s.title, num, s.content);
+        slides.push(...(cs.length ? cs : [{ type: 'section', num, title: s.title, items: s.subs.map(x => x.title), notes: '' }]));
+      }
+    });
+  }
+  if (opts.closing) slides.push({ type: 'closing', title: 'Thank you', subtitle: 'Questions and discussion', kicker: doc.title, notes: '' });
+  return slides;
+}
+
+/* ===================== Slide plan → drawing ops ==================== */
+const mctx = document.createElement('canvas').getContext('2d');
+function T(x, y, w, h, paras, o) {
+  const list = (Array.isArray(paras) ? paras : [paras]).map(p => typeof p === 'string' ? { text: p } : p);
+  return Object.assign({ t: 'text', x, y, w, h, paras: list, size: 18, lh: 1.2, gap: 0, align: 'left', valign: 'top', bold: false }, o);
+}
+const R = (x, y, w, h, fill, o) => Object.assign({ t: 'rect', x, y, w, h, fill }, o);
+const E = (x, y, w, h, fill, o) => Object.assign({ t: 'ellipse', x, y, w, h, fill }, o);
+
+function measureOp(op, size) {
+  const avail = (op.w - (op.bulletChar ? op.indent : 0)) * 72 * 0.93;
+  const sp = op.spacing || 0;
+  let lines = 0;
+  for (const p of op.paras) {
+    const segs = [];
+    if (p.lead) segs.push({ text: p.lead, bold: true });
+    segs.push({ text: p.text, bold: op.bold });
+    let lw = 0, n = 1;
+    for (const s of segs) {
+      mctx.font = `${s.bold ? 700 : 400} ${size}px "${op.font}"`;
+      const space = mctx.measureText(' ').width + sp;
+      for (const word of (op.caps ? s.text.toUpperCase() : s.text).split(/\s+/).filter(Boolean)) {
+        const ww = mctx.measureText(word).width + sp * word.length;
+        if (ww > avail) n += Math.ceil(ww / avail);
+        if (lw > 0 && lw + space + ww > avail) { n++; lw = ww; } else lw += (lw > 0 ? space : 0) + ww;
+      }
+    }
+    lines += n;
+  }
+  const gap = op.gapR ? size * op.gapR : op.gap;
+  return lines * size * op.lh + gap * (op.paras.length - 1);
+}
+function fit(op, max, min) {
+  min = min || 12;
+  let s = max;
+  while (s > min && measureOp(op, s) > op.h * 72 * 0.95) s -= s > 30 ? 2 : 1;
+  op.size = s;
+  if (op.gapR) op.gap = Math.round(s * op.gapR);
+  return op;
+}
+function hexToRgb(h) { return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
+function tint(c, base, t) {
+  const a = hexToRgb(c), b = hexToRgb(base);
+  return a.map((v, i) => Math.round(b[i] + (v - b[i]) * t).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+function gridLines(ops, color, x0, y0, w, h, step) {
+  for (let x = x0; x <= x0 + w + 0.001; x += step) ops.push(R(x, y0, 0.012, h, color));
+  for (let y = y0; y <= y0 + h + 0.001; y += step) ops.push(R(x0, y, w, 0.012, color));
+}
+
+function layoutSlide(m, th, ctx) {
+  const ops = [];
+  const P = o => (ops.push(o), o);
+  let bg = th.bg;
+  const ink = th.ink, mute = th.muted;
+  const mx = th.motif === 'band' ? 1.0 : 0.85;
+
+  const pageNum = (color) => P(T(W - 1.75, H - 0.6, 1.0, 0.3, String(ctx.index + 1), { font: th.label, size: 11, color: color || mute, align: 'right' }));
+
+  if (m.type === 'title' || m.type === 'closing') {
+    const isClose = m.type === 'closing';
+    const sub = m.subtitle || '';
+    const kick = m.kicker || '';
+    const titleMax = isClose ? 60 : 54;
+    switch (th.motif) {
+      case 'band': {
+        P(R(0, 0, 7.8, H, th.dark));
+        P(R(7.8, 0, 0.08, H, th.accent));
+        P(R(8.9, 1.25, 3.5, 2.3, th.accent));
+        P(R(9.9, 3.85, 2.5, 2.3, th.accent2));
+        P(R(8.9, 3.85, 0.7, 0.7, tint(th.accent, th.bg, 0.35)));
+        if (kick) P(T(0.9, 0.8, 6.5, 0.4, kick, { font: th.label, size: 12, bold: true, caps: true, spacing: 2, color: th.onDarkAccent }));
+        P(fit(T(0.9, 1.5, 6.3, 3.2, m.title, { font: th.head, bold: true, color: th.onDark, valign: 'bottom', lh: 1.08 }), titleMax, 26));
+        P(R(0.9, 4.95, 1.1, 0.06, th.accent));
+        if (sub) P(fit(T(0.9, 5.25, 6.3, 1.4, sub, { font: th.body, color: tint(th.onDark, th.dark, 0.78), lh: 1.3 }), 20, 12));
+        break;
+      }
+      case 'grid': {
+        gridLines(ops, tint(ink, bg, 0.07), 0.5, 0.5, W - 1.0, H - 1.0, 0.65);
+        P(R(0, 0, W, 0.07, th.accent));
+        P(T(0.9, 1.0, 10, 0.4, (isClose ? '// ' : '> ') + (kick || ''), { font: th.label, size: 13, color: th.accent }));
+        P(fit(T(0.9, 1.6, 10.8, 3.1, m.title, { font: th.head, bold: true, color: ink, valign: 'bottom', lh: 1.05 }), titleMax + 4, 28));
+        P(R(0.9, 4.95, 1.6, 0.08, th.accent));
+        P(R(2.5, 4.95, 0.8, 0.08, th.accent2));
+        if (sub) P(fit(T(0.9, 5.25, 9.5, 1.3, sub, { font: th.body, color: mute, lh: 1.35 }), 20, 12));
+        break;
+      }
+      case 'rule': {
+        P(R(0.9, 0.85, W - 1.8, 0.07, th.accent));
+        if (kick) P(T(0.9, 1.15, 9, 0.4, kick, { font: th.label, size: 12, bold: true, caps: true, spacing: 2, color: th.hi }));
+        P(fit(T(0.9, 1.7, 10.6, 3.0, m.title, { font: th.head, bold: true, color: ink, valign: 'bottom', lh: 1.12 }), titleMax - 4, 26));
+        if (sub) P(fit(T(0.9, 4.95, 10, 1.2, sub, { font: th.body, color: mute, lh: 1.35 }), 20, 12));
+        P(R(0.9, 6.5, W - 1.8, 0.014, tint(ink, bg, 0.4)));
+        P(T(0.9, 6.65, 8, 0.35, isClose ? '' : ctx.metaLine, { font: th.label, size: 11, color: mute }));
+        break;
+      }
+      case 'arc': {
+        P(E(7.6, -1.9, 8.2, 8.2, tint(th.accent, bg, 0.32)));
+        P(E(10.4, 4.4, 3.6, 3.6, tint(th.accent2, bg, 0.45)));
+        P(E(8.6, 4.9, 0.9, 0.9, th.accent));
+        if (kick) P(T(0.9, 1.0, 6.5, 0.4, kick, { font: th.label, size: 13, bold: true, color: th.hi }));
+        P(fit(T(0.9, 1.5, 7.0, 3.2, m.title, { font: th.head, bold: true, color: ink, valign: 'bottom', lh: 1.1 }), titleMax, 26));
+        P(R(0.9, 4.95, 0.9, 0.09, th.accent));
+        if (sub) P(fit(T(0.9, 5.25, 6.8, 1.4, sub, { font: th.body, color: mute, lh: 1.35 }), 20, 12));
+        break;
+      }
+      case 'frame': {
+        P(R(W - 4.3, 1.55, 3.5, 4.5, th.accent));
+        P(R(W - 3.7, 2.15, 3.5, 4.5, null, { stroke: th.accent2, sw: 2.5 }));
+        P(R(0.65, 0.9, 8.7, 5.15, null, { stroke: th.ink, sw: 1.25 }));
+        if (kick) P(T(1.15, 1.25, 7.5, 0.4, kick, { font: th.label, size: 12, bold: true, caps: true, spacing: 2.5, color: th.hi }));
+        P(fit(T(1.15, 1.75, 7.6, 2.9, m.title, { font: th.head, bold: true, color: ink, valign: 'bottom', lh: 1.1 }), titleMax + 4, 28));
+        if (sub) P(fit(T(1.15, 4.8, 7.6, 1.0, sub, { font: th.body, color: mute, lh: 1.35 }), 19, 12));
+        break;
+      }
+      case 'leaf': {
+        P(E(8.3, 0.8, 4.4, 4.4, tint(th.accent, bg, 0.28)));
+        P(E(10.7, 3.7, 2.6, 2.6, tint(th.accent2, bg, 0.5)));
+        P(E(9.3, 4.75, 1.3, 1.3, th.accent));
+        P(E(11.95, 1.15, 0.45, 0.45, th.accent2));
+        if (kick) P(T(0.9, 1.0, 7, 0.4, kick, { font: th.label, size: 12, bold: true, caps: true, spacing: 2, color: th.hi }));
+        P(fit(T(0.9, 1.5, 7.1, 3.2, m.title, { font: th.head, bold: true, color: ink, valign: 'bottom', lh: 1.12 }), titleMax, 26));
+        if (sub) P(fit(T(0.9, 4.95, 6.9, 1.5, sub, { font: th.body, color: mute, lh: 1.35 }), 20, 12));
+        break;
+      }
+      default: {
+        P(R(0.9, 1.75, 0.24, 0.24, th.accent));
+        P(fit(T(0.9, 2.2, 11.2, 2.5, m.title, { font: th.head, bold: true, color: ink, valign: 'top', lh: 1.08 }), titleMax, 26));
+        if (sub) P(fit(T(0.9, 4.85, 10, 1.1, sub, { font: th.body, color: mute, lh: 1.35 }), 20, 12));
+        P(R(0.9, 6.5, W - 1.8, 0.012, tint(ink, bg, 0.2)));
+        P(T(0.9, 6.65, 10, 0.35, kick, { font: th.label, size: 11, color: mute }));
+      }
+    }
+    return { bg, ops };
+  }
+
+  if (m.type === 'section') {
+    bg = th.dark;
+    const on = th.onDark, acc = th.onDarkAccent;
+    switch (th.motif) {
+      case 'band': P(R(0, 0, 0.35, H, th.accent)); break;
+      case 'grid': gridLines(ops, tint(on, bg, 0.07), 0.5, 0.5, W - 1.0, H - 1.0, 0.65); P(R(0, 0, W, 0.07, th.accent)); break;
+      case 'rule': P(R(mx, 1.15, W - 2 * mx, 0.03, acc)); P(R(mx, H - 1.0, W - 2 * mx, 0.012, tint(on, bg, 0.35))); break;
+      case 'arc': P(E(8.8, -1.4, 7, 7, tint(th.accent, bg, 0.3))); P(E(11.3, 5.2, 1.4, 1.4, tint(th.accent2, bg, 0.6))); break;
+      case 'frame': P(R(W - 2.6, 0, 2.6, H, th.accent)); P(R(W - 3.2, 1.0, 1.2, 5.5, null, { stroke: th.onDark, sw: 1.5 })); break;
+      case 'leaf': P(E(W - 3.1, 0.7, 2.4, 2.4, tint(th.accent, bg, 0.6))); P(E(W - 1.6, 2.6, 1.0, 1.0, th.accent2)); break;
+      default: P(R(mx, 1.3, 0.24, 0.24, acc));
+    }
+    const tw = th.motif === 'frame' ? 8.6 : th.motif === 'arc' || th.motif === 'leaf' ? 8.9 : 11;
+    P(T(mx, 1.55, 5, 1.5, m.num, { font: th.head, bold: true, size: 88, color: acc, lh: 1.0, valign: 'bottom' }));
+    P(fit(T(mx, 3.25, tw, 1.9, m.title, { font: th.head, bold: true, color: on, lh: 1.1 }), 46, 26));
+    if (m.items && m.items.length) P(fit(T(mx, 5.3, tw, 1.0, m.items.join('   ·   '), { font: th.body, color: tint(on, bg, 0.7), lh: 1.4 }), 16, 11));
+    pageNum(tint(on, bg, 0.55));
+    return { bg, ops };
+  }
+
+  // Content-type slides share a header.
+  let titleW = W - mx - 0.85;
+  switch (th.motif) {
+    case 'band': P(R(0, 0, 0.3, H, th.dark)); P(R(0.3, 0, 0.05, H, th.accent)); break;
+    case 'grid': gridLines(ops, tint(ink, bg, 0.07), W - 4.4, 0.5, 3.9, 1.95, 0.65); P(R(0, 0, W, 0.06, th.accent)); titleW = W - mx - 4.6; break;
+    case 'rule': P(R(mx, 2.12, W - 2 * mx, 0.015, ink)); P(R(mx, H - 0.75, W - 2 * mx, 0.012, tint(ink, bg, 0.3))); break;
+    case 'arc': P(E(W - 2.5, -2.3, 4.5, 4.5, tint(th.accent, bg, 0.35))); P(E(W - 1.25, 1.75, 0.8, 0.8, tint(th.accent2, bg, 0.6))); titleW = W - mx - 3.0; break;
+    case 'frame': P(R(W - 0.45, H - 1.6, 0.45, 1.6, th.accent2)); P(R(W - 1.05, H - 0.45, 0.6, 0.45, th.accent)); break;
+    case 'leaf': P(E(W - 1.95, 0.5, 1.15, 1.15, tint(th.accent, bg, 0.45))); P(E(W - 1.2, 1.25, 0.65, 0.65, tint(th.accent2, bg, 0.7))); P(E(W - 2.3, 1.45, 0.36, 0.36, th.accent)); titleW = W - mx - 2.7; break;
+    default: break;
+  }
+  const kick = m.kicker || '';
+  if (kick) {
+    if (th.motif === 'minimal') {
+      P(R(mx, 0.69, 0.13, 0.13, th.accent));
+      P(T(mx + 0.28, 0.6, 9, 0.35, kick, { font: th.label, size: 12, bold: true, caps: true, spacing: 1.5, color: mute }));
+    } else {
+      P(T(mx, 0.6, titleW, 0.35, th.motif === 'grid' ? '// ' + kick : kick, { font: th.label, size: 12, bold: th.motif !== 'grid', caps: th.motif !== 'grid', spacing: th.motif === 'grid' ? 0 : 1.5, color: th.hi }));
+    }
+  }
+  if (m.type !== 'statement' || m.title) P(fit(T(mx, 0.95, titleW, 1.1, m.title, { font: th.head, bold: true, color: ink, lh: 1.1 }), 34, 20));
+  if (th.motif === 'band') P(R(mx, 2.12, 0.75, 0.05, th.accent));
+  if (th.motif === 'frame' || th.motif === 'arc' || th.motif === 'leaf') P(R(mx, 2.12, 0.75, 0.07, th.accent));
+
+  const top = 2.5, bottom = H - 0.95, bh = bottom - top;
+  const bw = Math.min(W - mx - (th.motif === 'frame' ? 1.4 : 0.9), 11.4);
+
+  if (m.type === 'bullets') {
+    const twoCol = m.bullets.length >= 5 && m.bullets.every(b => (b.lead || '').length + b.text.length < 70);
+    const mk = (list, x, w) => T(x, top, w, bh, list.map(b => ({ lead: b.lead, text: b.text })), { font: th.body, color: ink, leadColor: ink, bulletChar: th.bullet, indent: 0.38, lh: 1.25, gapR: 0.75 });
+    if (twoCol) {
+      const half = Math.ceil(m.bullets.length / 2);
+      const cw = (bw - 0.6) / 2;
+      const a = mk(m.bullets.slice(0, half), mx, cw), b = mk(m.bullets.slice(half), mx + cw + 0.6, cw);
+      fit(a, 22, 12); fit(b, 22, 12);
+      const s = Math.min(a.size, b.size);
+      a.size = b.size = s; a.gap = b.gap = Math.round(s * 0.75);
+      P(a); P(b);
+    } else {
+      P(fit(mk(m.bullets, mx, bw), m.bullets.length <= 3 ? 26 : 23, 12));
+    }
+  } else if (m.type === 'stats') {
+    const n = m.stats.length, gap = 0.35;
+    const cw = (W - 2 * mx - gap * (n - 1) - (th.motif === 'frame' ? 0.5 : 0)) / n;
+    const cardFill = th.darkBg ? tint(ink, bg, 0.07) : tint(th.accent, bg, 0.11);
+    const vals = [], caps = [];
+    m.stats.forEach((s, i) => {
+      const x = mx + i * (cw + gap);
+      P(R(x, top + 0.1, cw, 3.55, cardFill));
+      P(R(x, top + 0.1, cw, 0.06, th.accent));
+      vals.push(P(fit(T(x + 0.3, top + 0.4, cw - 0.6, 1.25, s.value, { font: th.head, bold: true, color: th.hi, valign: 'bottom', lh: 1.0 }), 60, 24)));
+      caps.push(P(fit(T(x + 0.3, top + 1.85, cw - 0.6, 1.65, s.caption, { font: th.body, color: ink, lh: 1.3 }), 17, 11)));
+    });
+    const vs = Math.min(...vals.map(v => v.size)), cs = Math.min(...caps.map(c => c.size));
+    vals.forEach(v => v.size = vs); caps.forEach(c => c.size = cs);
+  } else if (m.type === 'quote') {
+    P(T(mx - 0.05, top - 0.35, 1.6, 1.4, '“', { font: th.head, bold: true, size: 120, color: tint(th.accent, bg, 0.55), lh: 1.0 }));
+    P(fit(T(mx + 0.9, top + 0.1, bw - 1.2, 3.0, m.quote, { font: th.head, color: ink, lh: 1.3, valign: 'middle' }), 32, 18));
+    if (m.by) P(T(mx + 0.9, top + 3.3, bw - 1.2, 0.45, '— ' + m.by, { font: th.body, size: 16, color: mute }));
+  } else if (m.type === 'statement') {
+    P(fit(T(mx, top + 0.1, Math.min(bw, 10.4), bh - 0.2, m.text, { font: th.head, color: ink, lh: 1.28, valign: 'middle' }), 36, 18));
+  } else if (m.type === 'agenda') {
+    const n = m.items.length;
+    const cols = n > 5 ? 2 : 1;
+    const rows = Math.ceil(n / cols);
+    const cw = cols === 2 ? (bw - 0.6) / 2 : Math.min(bw, 9);
+    const rh = Math.min(0.78, bh / rows);
+    const texts = [];
+    m.items.forEach((it, i) => {
+      const c = Math.floor(i / rows), r = i % rows;
+      const x = mx + c * (cw + 0.6), y = top + r * rh;
+      P(T(x, y + 0.04, 0.7, rh - 0.08, String(i + 1).padStart(2, '0'), { font: th.label, bold: true, size: 14, color: th.hi, valign: 'middle' }));
+      texts.push(P(fit(T(x + 0.75, y + 0.04, cw - 0.75, rh - 0.08, it, { font: th.body, color: ink, lh: 1.15, valign: 'middle' }), 20, 11)));
+      P(R(x, y + rh - 0.012, cw, 0.012, tint(ink, bg, 0.15)));
+    });
+    const s = Math.min(...texts.map(t => t.size));
+    texts.forEach(t => t.size = s);
+  }
+  if (th.motif === 'rule' || th.motif === 'minimal' || th.motif === 'band') {
+    P(T(mx, H - 0.6, 8, 0.3, ctx.docTitle, { font: th.label, size: 10, color: mute }));
+  }
+  pageNum();
+  return { bg, ops };
+}
+
+/* =========================== HTML renderer ========================= */
+function fontStack(f) {
+  const serif = ['Roboto Slab', 'Playfair Display', 'Lora', 'Merriweather'].includes(f);
+  const mono = f === 'Roboto Mono';
+  return `"${f}", ${mono ? 'ui-monospace, Menlo, monospace' : serif ? 'Georgia, serif' : 'system-ui, sans-serif'}`;
+}
+function renderSlide(model) {
+  const el = document.createElement('div');
+  el.className = 'slide';
+  el.style.background = '#' + model.bg;
+  for (const op of model.ops) {
+    const d = document.createElement('div');
+    const st = d.style;
+    st.left = (op.x / W * 100) + '%';
+    st.top = (op.y / H * 100) + '%';
+    st.width = (op.w / W * 100) + '%';
+    st.height = (op.h / H * 100) + '%';
+    if (op.t === 'rect' || op.t === 'ellipse') {
+      if (op.fill) st.background = '#' + op.fill;
+      if (op.stroke) { st.border = `${op.sw * PT}cqw solid #${op.stroke}`; st.boxSizing = 'border-box'; }
+      if (op.t === 'ellipse') st.borderRadius = '50%';
+      if (op.alpha != null) st.opacity = op.alpha;
+    } else {
+      d.className = 't';
+      st.fontFamily = fontStack(op.font);
+      st.fontWeight = op.bold ? 700 : 400;
+      st.fontSize = (op.size * PT) + 'cqw';
+      st.lineHeight = (op.size * op.lh * PT) + 'cqw';
+      st.color = '#' + op.color;
+      st.textAlign = op.align;
+      st.justifyContent = op.valign === 'bottom' ? 'flex-end' : op.valign === 'middle' ? 'center' : 'flex-start';
+      if (op.spacing) st.letterSpacing = (op.spacing * PT) + 'cqw';
+      const last = op.paras.length - 1;
+      op.paras.forEach((p, i) => {
+        const pe = document.createElement('p');
+        if (i < last && op.gap) pe.style.marginBottom = (op.gap * PT) + 'cqw';
+        if (op.bulletChar) {
+          pe.style.paddingLeft = (op.indent * IN) + 'cqw';
+          const b = document.createElement('span');
+          b.className = 'b';
+          b.textContent = op.bulletChar;
+          pe.append(b);
+        }
+        if (p.lead) {
+          const l = document.createElement('strong');
+          l.textContent = p.lead + ' ';
+          if (op.leadColor) l.style.color = '#' + op.leadColor;
+          pe.append(l);
+        }
+        pe.append(document.createTextNode(op.caps ? p.text.toUpperCase() : p.text));
+        d.append(pe);
+      });
+    }
+    el.append(d);
+  }
+  return el;
+}
+
+/* =========================== PPTX renderer ========================= */
+function buildPptx(models, title) {
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE';
+  pptx.title = title;
+  pptx.author = 'DocDeck';
+  for (const m of models) {
+    const s = pptx.addSlide();
+    s.background = { color: m.bg };
+    for (const op of m.ops) {
+      if (op.t === 'rect' || op.t === 'ellipse') {
+        const o = { x: op.x, y: op.y, w: op.w, h: op.h };
+        o.fill = op.fill ? { color: op.fill, transparency: op.alpha != null ? Math.round((1 - op.alpha) * 100) : 0 } : { type: 'none' };
+        if (op.stroke) o.line = { color: op.stroke, width: op.sw };
+        s.addShape(op.t === 'ellipse' ? pptx.ShapeType.ellipse : pptx.ShapeType.rect, o);
+      } else {
+        const runs = [];
+        const last = op.paras.length - 1;
+        op.paras.forEach((p, i) => {
+          const po = {};
+          if (op.bulletChar) po.bullet = { code: op.bulletChar.codePointAt(0).toString(16).toUpperCase().padStart(4, '0'), indent: Math.round(op.indent * 72) };
+          if (i < last && op.gap) po.paraSpaceAfter = op.gap;
+          const tx = op.caps ? p.text.toUpperCase() : p.text;
+          if (p.lead) runs.push({ text: p.lead + ' ', options: Object.assign({}, po, { bold: true, color: op.leadColor || op.color }) });
+          runs.push({ text: tx, options: Object.assign({}, po, { breakLine: i < last }) });
+        });
+        const o = { x: op.x, y: op.y, w: op.w, h: op.h, fontFace: op.font, fontSize: op.size, color: op.color, bold: !!op.bold, align: op.align, valign: op.valign, margin: 0, lineSpacing: +(op.size * op.lh).toFixed(1), fit: 'none', wrap: true };
+        if (op.spacing) o.charSpacing = op.spacing;
+        s.addText(runs, o);
+      }
+    }
+    if (m.notes) s.addNotes(m.notes);
+  }
+  return pptx;
+}
+
+/* ============================== Sample ============================= */
+const SAMPLE = {
+  fileName: 'Harbor & Pine 2027 Expansion Plan.pdf', pages: 3,
+  title: 'Harbor & Pine Coffee: 2027 Expansion Plan',
+  subtitle: 'Prepared for the board of directors, Q4 review',
+  blocks: [
+    { kind: 'h', level: 1, text: 'Executive summary' },
+    { kind: 'p', text: 'Harbor & Pine closed fiscal 2026 with revenue of $8.4M across six cafés, up 22% on the prior year. We propose opening three new locations in 2027, funded by operating cash flow and a $1.2M credit line. The plan targets break-even on each new store within 14 months.' },
+    { kind: 'h', level: 1, text: 'Market opportunity' },
+    { kind: 'li', text: 'Specialty coffee spending in our metro area grew 11% in 2026' },
+    { kind: 'li', text: 'Downtown office occupancy is back to 78% of 2019 levels' },
+    { kind: 'li', text: 'Our loyalty app has 41,000 active members, most within two miles of a proposed site' },
+    { kind: 'h', level: 1, text: 'Growth strategy' },
+    { kind: 'h', level: 2, text: 'Three new locations' },
+    { kind: 'p', text: 'We will open in Riverside, the Arts District and the university campus. Each site has weekday foot traffic above 9,000 people and no specialty competitor within 400 metres.' },
+    { kind: 'li', text: 'Riverside: drive-through format for commuters' },
+    { kind: 'li', text: 'Arts District: larger café with evening events' },
+    { kind: 'li', text: 'Campus: compact kiosk built around mobile ordering' },
+    { kind: 'h', level: 2, text: 'Wholesale and retail' },
+    { kind: 'p', text: 'Bagged beans and wholesale accounts now make up 14% of revenue. We will add twelve grocery accounts and launch a subscription service, which carries a gross margin of 58% compared with 34% for café sales.' },
+    { kind: 'h', level: 2, text: 'Customer experience' },
+    { kind: 'p', text: 'Mobile ordering will reach every store by March. Average wait time at peak hours should fall from six minutes to under three, which was the most common complaint in our customer survey.' },
+    { kind: 'h', level: 1, text: 'Financial outlook' },
+    { kind: 'li', text: 'Revenue forecast: $10.9M in fiscal 2027' },
+    { kind: 'li', text: 'Capital investment: $1.6M across three sites' },
+    { kind: 'li', text: 'Operating margin: 12%, rising to 15% by 2028' },
+    { kind: 'h', level: 1, text: 'Risks' },
+    { kind: 'p', text: 'Green coffee prices rose 30% over the past year and may stay high, so we will lock in 60% of 2027 volume through forward contracts. Hiring is the second risk. Each new store needs fourteen trained baristas, so our training academy starts in January.' },
+    { kind: 'h', level: 1, text: 'Next steps' },
+    { kind: 'li', text: 'Board approval of the expansion budget in December' },
+    { kind: 'li', text: 'Sign the Riverside lease by January 31' },
+    { kind: 'li', text: 'Open the first new store in May 2027' },
+  ],
+};
+
+/* =============================== App =============================== */
+const $ = id => document.getElementById(id);
+const state = { doc: null, fileName: '', detected: null, themeId: 'general', slides: [], models: [], cur: 0, isSample: true, ms: 0 };
+
+function opts() { return { agenda: $('optAgenda').checked, closing: $('optClosing').checked }; }
+
+const fontsReady = (() => {
+  const fams = new Set();
+  for (const t of Object.values(THEMES)) { fams.add(t.head); fams.add(t.body); fams.add(t.label); }
+  const loads = [];
+  for (const f of fams) { loads.push(document.fonts.load(`400 20px "${f}"`)); loads.push(document.fonts.load(`700 20px "${f}"`)); }
+  return Promise.race([Promise.allSettled(loads), new Promise(r => setTimeout(r, 4000))]);
+})();
+
+function layoutDeck() {
+  const th = THEMES[state.themeId];
+  const total = state.slides.length;
+  const meta = [state.doc.pages ? `${state.doc.pages}-page document` : '', new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })].filter(Boolean).join('  ·  ');
+  state.models = state.slides.map((s, i) => Object.assign(layoutSlide(s, th, { index: i, total, docTitle: shorten(state.doc.title, 10), metaLine: meta }), { notes: s.notes }));
+}
+
+function rebuild() {
+  state.slides = buildDeck(state.doc, opts());
+  layoutDeck();
+  state.cur = Math.min(state.cur, state.models.length - 1);
+  renderAll();
+}
+
+function renderAll() {
+  renderStage();
+  const strip = $('strip');
+  strip.replaceChildren();
+  state.models.forEach((m, i) => {
+    const b = document.createElement('button');
+    b.className = 'thumb';
+    b.type = 'button';
+    b.setAttribute('aria-label', `Slide ${i + 1}: ${state.slides[i].title || ''}`);
+    if (i === state.cur) b.setAttribute('aria-current', 'true');
+    const f = document.createElement('div');
+    f.className = 'frame';
+    f.append(renderSlide(m));
+    const cap = document.createElement('span');
+    cap.textContent = `${i + 1}. ${state.slides[i].title || ''}`;
+    cap.style.whiteSpace = 'nowrap'; cap.style.overflow = 'hidden'; cap.style.textOverflow = 'ellipsis';
+    b.append(f, cap);
+    b.addEventListener('click', () => { state.cur = i; renderStage(); markThumbs(); });
+    strip.append(b);
+  });
+  renderTemplates();
+  renderDetect();
+  const th = THEMES[state.themeId];
+  $('info').innerHTML = '';
+  const info = $('info');
+  const parts = [[`${state.models.length} slides`, true], [` · ${th.name} template`, false]];
+  if (!state.isSample) parts.push([` · built in ${(state.ms / 1000).toFixed(1)} s from ${state.doc.pages} page${state.doc.pages === 1 ? '' : 's'}`, false]);
+  for (const [t, b] of parts) { const e = document.createElement(b ? 'b' : 'span'); e.textContent = t; info.append(e); }
+  $('sampleNote').hidden = !state.isSample;
+}
+function markThumbs() {
+  [...$('strip').children].forEach((b, i) => { if (i === state.cur) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+}
+function renderStage() {
+  const m = state.models[state.cur];
+  $('big').replaceChildren(renderSlide(m));
+  $('pos').textContent = `${state.cur + 1} / ${state.models.length}`;
+  const notes = state.slides[state.cur].notes;
+  const n = $('notes');
+  n.hidden = !notes;
+  if (notes) { n.replaceChildren(); const b = document.createElement('b'); b.textContent = 'Speaker notes, from your document'; n.append(b, document.createTextNode(notes)); }
+}
+function go(d) {
+  const nx = Math.max(0, Math.min(state.models.length - 1, state.cur + d));
+  if (nx === state.cur) return;
+  state.cur = nx; renderStage(); markThumbs();
+}
+
+function renderTemplates() {
+  const box = $('tpls');
+  box.replaceChildren();
+  const sampleTitle = { type: 'title', title: state.doc.title, subtitle: '', kicker: '' };
+  for (const id of THEME_ORDER) {
+    const th = THEMES[id];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tpl';
+    b.setAttribute('aria-pressed', String(id === state.themeId));
+    b.setAttribute('aria-label', `${th.name} template, for ${th.for}`);
+    b.title = th.for;
+    const mini = document.createElement('div');
+    mini.className = 'mini';
+    mini.append(renderSlide(layoutSlide(sampleTitle, th, { index: 0, total: 1, docTitle: '', metaLine: '' })));
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const nm = document.createElement('b'); nm.textContent = th.name;
+    meta.append(nm);
+    if (state.detected && state.detected.id === id) { const a = document.createElement('span'); a.className = 'auto'; a.textContent = 'Auto'; meta.append(a); }
+    b.append(mini, meta);
+    b.addEventListener('click', () => { state.themeId = id; layoutDeck(); renderAll(); });
+    box.append(b);
+  }
+}
+
+function renderDetect() {
+  const d = state.detected, box = $('detect');
+  box.replaceChildren();
+  if (!d) return;
+  const th = THEMES[d.id];
+  const pick = document.createElement('div');
+  pick.className = 'pick';
+  const b = document.createElement('b'); b.textContent = th.name;
+  const s = document.createElement('span');
+  s.textContent = d.id === 'general' ? 'No strong subject found, so a neutral template' : `Reads as ${th.for.toLowerCase()}`;
+  pick.append(b, s);
+  box.append(pick);
+  if (d.id !== 'general') {
+    const bars = document.createElement('div');
+    bars.className = 'bars';
+    for (const r of d.ranked.slice(0, 3)) {
+      if (r.share <= 0) continue;
+      const row = document.createElement('div');
+      row.className = 'bar' + (r.id === d.id ? ' win' : '');
+      const l = document.createElement('span'); l.textContent = THEMES[r.id].for.split(/ [&,]/)[0];
+      const tr = document.createElement('div'); tr.className = 'track';
+      const f = document.createElement('div'); f.className = 'fill'; f.style.width = Math.round(r.share * 100) + '%';
+      tr.append(f);
+      const p = document.createElement('span'); p.className = 'pct'; p.textContent = Math.round(r.share * 100) + '%';
+      row.append(l, tr, p);
+      bars.append(row);
+    }
+    box.append(bars);
+    if (d.keywords.length) {
+      const kw = document.createElement('div');
+      kw.className = 'kw';
+      kw.setAttribute('aria-label', 'Words that decided the match');
+      for (const w of d.keywords) { const e = document.createElement('span'); e.textContent = w; kw.append(e); }
+      box.append(kw);
+    }
+  }
+  if (state.themeId !== d.id) {
+    const p = document.createElement('p'); p.className = 'hint';
+    p.textContent = `You switched to ${THEMES[state.themeId].name}.`;
+    box.append(p);
+  }
+}
+
+/* Progress steps */
+const STEPS = [['read', 'Reading pages'], ['struct', 'Finding structure'], ['match', 'Matching a template'], ['build', 'Building slides']];
+function showSteps() {
+  $('progress').hidden = false;
+  $('steps').replaceChildren(...STEPS.map(([id, label]) => {
+    const li = document.createElement('li'); li.id = 'st-' + id;
+    const dot = document.createElement('span'); dot.className = 'dot';
+    const t = document.createElement('span'); t.textContent = label;
+    li.append(dot, t); return li;
+  }));
+}
+function step(id, text) {
+  const li = $('st-' + id);
+  if (!li) return;
+  if (text === null) { li.className = 'done'; li.querySelector('.dot').textContent = '✓'; li.lastChild.textContent = STEPS.find(s => s[0] === id)[1]; return; }
+  li.className = 'active';
+  li.lastChild.textContent = text;
+}
+
+async function handleFile(file) {
+  $('err').hidden = true;
+  $('exStatus').textContent = '';
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { showErr('That file is not a PDF. In Google Docs, use File → Download → PDF document.'); return; }
+  if (typeof pdfjsLib === 'undefined') { showErr('The PDF reader did not load. Check your connection and reload the page.'); return; }
+  const chip = $('filechip');
+  chip.hidden = false;
+  chip.replaceChildren();
+  const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = file.name;
+  const sz = document.createElement('span'); sz.className = 'tag'; sz.textContent = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+  chip.append(nm, sz);
+  showSteps();
+  const t0 = performance.now();
+  try {
+    if (pdfjsLib.GlobalWorkerOptions) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf = await file.arrayBuffer();
+    const doc = await pdfToDoc(new Uint8Array(buf), file.name, step);
+    if (!doc.blocks.length) throw new Error('No readable paragraphs were found in this PDF.');
+    step('match', 'Matching a template');
+    const det = detectTheme(doc);
+    step('match', null);
+    step('build', 'Building slides');
+    await fontsReady;
+    state.doc = doc; state.fileName = file.name; state.detected = det; state.themeId = det.id; state.isSample = false; state.cur = 0;
+    state.slides = buildDeck(doc, opts());
+    layoutDeck();
+    state.ms = performance.now() - t0;
+    step('build', null);
+    renderAll();
+  } catch (e) {
+    console.error(e);
+    showErr(e && e.name === 'PasswordException' ? 'This PDF is password-protected. Download it again from Google Docs without a password.' : (e && e.message) || 'This PDF could not be read.');
+  }
+}
+function showErr(msg) { const e = $('err'); e.hidden = false; e.textContent = msg; }
+
+/* Export */
+function deckFileName() { return (state.doc.title || 'Slides').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) + '.pptx'; }
+function setStatus(text, kind) { const s = $('exStatus'); s.textContent = text; s.className = 'status' + (kind ? ' ' + kind : ''); }
+
+async function makeBlob() {
+  await fontsReady;
+  return buildPptx(state.models, state.doc.title).write({ outputType: 'blob' });
+}
+async function downloadPptx() {
+  const btn = $('btnPptx');
+  btn.disabled = true;
+  setStatus('Preparing your deck…');
+  try {
+    const blob = await makeBlob();
+    const name = deckFileName();
+    if (IN_ARTIFACT) {
+      const dl = await window.claude.use('downloads');
+      if (!dl) { setStatus('Saving files is not available in this view. Open the page on claude.ai to download.', 'no'); return; }
+      try { await dl.save({ filename: name, data: blob }); setStatus(`Saved ${name}`, 'ok'); }
+      catch (e) { setStatus(e && e.code === 'declined' ? 'Download cancelled.' : 'The download did not start. Try again.', e && e.code === 'declined' ? '' : 'no'); }
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setStatus(`Saved ${name}`, 'ok');
+    }
+  } catch (e) {
+    console.error(e);
+    setStatus('Could not build the .pptx file. Reload the page and try again.', 'no');
+  } finally { btn.disabled = false; }
+}
+
+/* Google Slides: one click on a self-hosted copy with a Client ID, otherwise a short import guide. */
+function getClientId() { try { return localStorage.getItem('docdeck.gcid') || GOOGLE_CLIENT_ID; } catch (e) { return GOOGLE_CLIENT_ID; } }
+let gisLoading = null, tokenClient = null, gToken = null, gTokenExp = 0;
+function loadGis() {
+  if (gisLoading) return gisLoading;
+  gisLoading = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.onload = res; s.onerror = () => rej(new Error('Google sign-in could not load.'));
+    document.head.append(s);
+  });
+  return gisLoading;
+}
+function getToken() {
+  if (gToken && Date.now() < gTokenExp) return Promise.resolve(gToken);
+  return new Promise((res, rej) => {
+    if (!window.google || !google.accounts) return rej(new Error('Google sign-in is still loading. Try again in a moment.'));
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: getClientId(),
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: r => {
+        if (r.error) return rej(new Error('Google sign-in was cancelled.'));
+        gToken = r.access_token; gTokenExp = Date.now() + (r.expires_in - 60) * 1000; res(gToken);
+      },
+      error_callback: () => rej(new Error('Google sign-in was closed before it finished.')),
+    });
+    tokenClient.requestAccessToken();
+  });
+}
+async function createInGoogle() {
+  const btn = $('btnGoogle');
+  btn.disabled = true;
+  try {
+    const tokenP = getToken();
+    setStatus('Waiting for Google sign-in…');
+    const token = await tokenP;
+    setStatus('Creating your Google Slides deck…');
+    const blob = await makeBlob();
+    const meta = { name: deckFileName().replace(/\.pptx$/, ''), mimeType: 'application/vnd.google-apps.presentation' };
+    const boundary = 'docdeck' + Math.random().toString(36).slice(2);
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`,
+      `--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.presentationml.presentation\r\n\r\n`,
+      blob, `\r\n--${boundary}--`,
+    ]);
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
+    });
+    if (!r.ok) throw new Error(r.status === 403 ? 'Google refused the upload. Check that the Drive API is enabled for your Client ID.' : `Google returned an error (${r.status}).`);
+    const j = await r.json();
+    const link = j.webViewLink || `https://docs.google.com/presentation/d/${j.id}/edit`;
+    const s = $('exStatus');
+    s.className = 'status ok';
+    s.replaceChildren(document.createTextNode('Deck created. '));
+    const a = document.createElement('a'); a.href = link; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Open it in Google Slides';
+    a.style.color = 'inherit'; a.style.fontWeight = '700';
+    s.append(a);
+    window.open(link, '_blank', 'noopener');
+  } catch (e) {
+    setStatus(e.message || 'Something went wrong talking to Google.', 'no');
+  } finally { btn.disabled = false; }
+}
+function setupGoogleUi() {
+  const cid = getClientId();
+  const oneClick = !IN_ARTIFACT && !!cid;
+  $('btnGoogle').textContent = oneClick ? 'Create in Google Slides' : 'Open in Google Slides';
+  $('setup').hidden = IN_ARTIFACT || oneClick;
+  if (oneClick) loadGis().catch(() => {});
+}
+
+/* Wire up */
+function init() {
+  state.doc = SAMPLE; state.fileName = SAMPLE.fileName;
+  state.detected = detectTheme(SAMPLE);
+  state.themeId = state.detected.id;
+  state.slides = buildDeck(SAMPLE, opts());
+  layoutDeck();
+  renderAll();
+  fontsReady.then(() => { layoutDeck(); renderAll(); });
+
+  const drop = $('drop');
+  $('file').addEventListener('change', e => handleFile(e.target.files[0]));
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+  $('optAgenda').addEventListener('change', rebuild);
+  $('optClosing').addEventListener('change', rebuild);
+  $('prev').addEventListener('click', () => go(-1));
+  $('next').addEventListener('click', () => go(1));
+  document.addEventListener('keydown', e => {
+    if (e.target.closest('input, textarea')) return;
+    if (e.key === 'ArrowRight') go(1);
+    if (e.key === 'ArrowLeft') go(-1);
+  });
+  $('btnPptx').addEventListener('click', downloadPptx);
+  $('btnGoogle').addEventListener('click', () => {
+    if (!IN_ARTIFACT && getClientId()) { createInGoogle(); return; }
+    const h = $('howto');
+    h.hidden = false;
+    h.querySelector('a').focus();
+  });
+  $('gcidSave').addEventListener('click', () => {
+    const v = $('gcid').value.trim();
+    if (!/\.apps\.googleusercontent\.com$/.test(v)) { setStatus('That does not look like a Client ID. It ends in .apps.googleusercontent.com.', 'no'); return; }
+    try { localStorage.setItem('docdeck.gcid', v); } catch (e) { /* storage blocked */ }
+    setStatus('Saved. The button now creates the deck in your Google Drive.', 'ok');
+    setupGoogleUi();
+  });
+  setupGoogleUi();
+}
+init();
+})();
+</script>
+
+</body>
+</html>
